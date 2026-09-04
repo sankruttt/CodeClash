@@ -36,11 +36,92 @@ const matches = [
   { id: 3, opponent: 'Nia Okafor', avatar: 'NO', color: 'green', result: 'Defeat', score: '1 - 2', challenge: 'String Compression', date: 'Aug 24, 14:31', time: 22, rating: -12 },
 ]
 
+// Battle questions
+const battleQuestions = [
+  {
+    id: 1,
+    title: 'Binary Search',
+    difficulty: 'Medium',
+    description: 'Given a sorted array of integers and a target value, return the index of the target if it exists. Otherwise, return -1.',
+    constraints: [
+      '1 ≤ nums.length ≤ 10,000',
+      '-10,000 ≤ nums[i] ≤ 10,000',
+      'All elements are unique',
+      'nums is sorted in ascending order'
+    ],
+    examples: [
+      { input: 'nums = [-1, 0, 3, 5, 9, 12], target = 9', output: '4' },
+      { input: 'nums = [5], target = 5', output: '0' },
+      { input: 'nums = [-1, 0, 3, 5, 9, 12], target = 13', output: '-1' }
+    ],
+    starterCode: `function search(nums, target) {
+  // write your solution here
+  return -1;
+}`
+  },
+  {
+    id: 2,
+    title: 'Valid Parentheses',
+    difficulty: 'Easy',
+    description: "Given a string s containing just the characters '(', ')', '{', '}', '[' and ']', determine if the input string is valid.",
+    constraints: [
+      '1 ≤ s.length ≤ 10,000',
+      "s consists of parentheses only '()[]{}' "
+    ],
+    examples: [
+      { input: 's = \"()\"', output: 'true' },
+      { input: 's = \"()[]{}\"', output: 'true' },
+      { input: 's = \"(]\"', output: 'false' }
+    ],
+    starterCode: `function isValid(s) {
+  // write your solution here
+  return false;
+}`
+  },
+  {
+    id: 3,
+    title: 'Merge Intervals',
+    difficulty: 'Hard',
+    description: 'Given an array of intervals where intervals[i] = [starti, endi], merge all overlapping intervals.',
+    constraints: [
+      '1 ≤ intervals.length ≤ 10,000',
+      'intervals[i].length == 2',
+      '0 ≤ starti ≤ endi ≤ 10,000'
+    ],
+    examples: [
+      { input: 'intervals = [[1,3],[2,6],[8,10],[15,18]]', output: '[[1,6],[8,10],[15,18]]' },
+      { input: 'intervals = [[1,4],[4,5]]', output: '[[1,5]]' }
+    ],
+    starterCode: `function merge(intervals) {
+  // write your solution here
+  return intervals;
+}`
+  }
+]
+
+// Opponent data for battles
+const opponentData = {
+  name: 'Bot',
+  avatar: 'BT',
+  color: 'blue',
+  solved: [false, false, false],
+  times: [0, 0, 0]
+}
+
 // Live duel data for lobby
 const liveMatches = [
   { player1: 'Maya Chen', player1Pts: 640, player2: 'Jon Bell', player2Pts: 510, problem: 'Graph Traversal / Medium', timer: '08:42', status: 'in-progress' },
   { player1: 'Sarah Kim', player1Pts: 420, player2: 'James Liu', player2Pts: 380, problem: 'Binary Search / Easy', timer: '03:15', status: 'in-progress' },
   { player1: 'Alex Chen', player1Pts: 210, player2: 'Maria Santos', player2Pts: 280, problem: 'Two Sum / Medium', timer: '12:47', status: 'in-progress' },
+]
+
+// Random opponents for matchmaking
+const opponents = [
+  { name: 'Maya Chen', handle: '@mayacodes', avatar: 'MC', color: 'coral', rating: 2840 },
+  { name: 'Theo Brooks', handle: '@theob', avatar: 'TB', color: 'blue', rating: 2665 },
+  { name: 'Nia Okafor', handle: '@nia.codes', avatar: 'NO', color: 'green', rating: 2540 },
+  { name: 'Sarah Kim', handle: '@sarahkim', avatar: 'SK', color: 'coral', rating: 2480 },
+  { name: 'James Liu', handle: '@jliu', avatar: 'JL', color: 'blue', rating: 2420 },
 ]
 
 // Current user profile
@@ -86,8 +167,8 @@ function App() {
       <main className="main-content">
         <Topbar currentUser={currentUser} navigate={navigate} activePanel={topbarPanel} setActivePanel={setTopbarPanel} />
         {route === 'dashboard' && <Dashboard navigate={navigate} queueing={queueing} setQueueing={setQueueing} currentUser={currentUser} />}
-        {route === 'lobby' && <Lobby navigate={navigate} queueing={queueing} setQueueing={setQueueing} />}
-        {route === 'arena' && <Arena navigate={navigate} />}
+        {route === 'lobby' && <Lobby navigate={navigate} queueing={queueing} setQueueing={setQueueing} currentUser={currentUser} />}
+        {route === 'arena' && <Arena navigate={navigate} battleMode={true} currentUser={currentUser} />}
         {route === 'leaderboard' && <Leaderboard />}
         {route === 'history' && <History />}
         {route === 'profile' && <Profile navigate={navigate} currentUser={currentUser} />}
@@ -342,6 +423,26 @@ function LoginPage({ route, navigate, setIsAuthenticated }) {
 }
 
 function Dashboard({ navigate, queueing, setQueueing, currentUser }) {
+  const [foundOpponent, setFoundOpponent] = useState(null)
+
+  const findRandomMatch = () => {
+    setQueueing(true)
+    setFoundOpponent(null)
+    
+    // Simulate finding a random opponent after 2 seconds
+    setTimeout(() => {
+      const randomOpponent = opponents[Math.floor(Math.random() * opponents.length)]
+      setFoundOpponent(randomOpponent)
+      setQueueing(false)
+    }, 2000)
+  }
+
+  const startMatch = () => {
+    // Navigate to arena with battle mode
+    window.location.hash = 'arena'
+    setFoundOpponent(null)
+  }
+
   return (
     <div className="page dashboard-page">
       <div className="page-hero">
@@ -350,13 +451,38 @@ function Dashboard({ navigate, queueing, setQueueing, currentUser }) {
           <h1>Ready for a <span className="text-accent">rematch?</span></h1>
           <p>Your {currentUser.streak}-day streak is alive. Keep the momentum going.</p>
         </div>
-        <button className="btn-primary" onClick={() => setQueueing(true)}>
+        <button className="btn-primary" onClick={findRandomMatch}>
           {queueing ? 'Finding opponent...' : '⚔ Find a match'}
           <span>↗</span>
         </button>
       </div>
 
       {queueing && <QueueBanner setQueueing={setQueueing} />}
+      
+      {foundOpponent && (
+        <div className="match-found-banner">
+          <div className="match-found-content">
+            <span className="match-found-label">OPPONENT FOUND</span>
+            <div className="match-found-players">
+              <div className="match-player">
+                <span className="avatar">{currentUser.avatar}</span>
+                <span className="player-name">{currentUser.name}</span>
+                <span className="player-rating">{currentUser.rating}</span>
+              </div>
+              <span className="vs">VS</span>
+              <div className="match-player">
+                <span className={`avatar ${foundOpponent.color}`}>{foundOpponent.avatar}</span>
+                <span className="player-name">{foundOpponent.name}</span>
+                <span className="player-rating">{foundOpponent.rating}</span>
+              </div>
+            </div>
+          </div>
+          <div className="match-found-actions">
+            <button className="btn-ghost" onClick={() => setFoundOpponent(null)}>Cancel</button>
+            <button className="btn-primary" onClick={startMatch}>Accept & Fight</button>
+          </div>
+        </div>
+      )}
 
       <div className="stats-row">
         <div className="stat-card">
@@ -493,8 +619,26 @@ function QueueBanner({ setQueueing }) {
   )
 }
 
-function Lobby({ navigate, queueing, setQueueing }) {
+function Lobby({ navigate, queueing, setQueueing, currentUser }) {
   const [activeDuel, setActiveDuel] = useState(0)
+  const [foundOpponent, setFoundOpponent] = useState(null)
+
+  const findRandomMatch = () => {
+    setQueueing(true)
+    setFoundOpponent(null)
+    
+    // Simulate finding a random opponent after 2 seconds
+    setTimeout(() => {
+      const randomOpponent = opponents[Math.floor(Math.random() * opponents.length)]
+      setFoundOpponent(randomOpponent)
+      setQueueing(false)
+    }, 2000)
+  }
+
+  const startMatch = () => {
+    window.location.hash = 'arena'
+    setFoundOpponent(null)
+  }
 
   return (
     <div className="page lobby-page">
@@ -510,10 +654,44 @@ function Lobby({ navigate, queueing, setQueueing }) {
         </div>
       </div>
 
-      {queueing && <QueueBanner setQueueing={setQueueing} />}
+      {queueing && (
+        <div className="queue-banner">
+          <div className="spinner"></div>
+          <div className="queue-text">
+            <strong>Searching the arena</strong>
+            <small>Matching you with a worthy opponent...</small>
+          </div>
+          <button onClick={() => { setQueueing(false); setFoundOpponent(null); }}>Cancel</button>
+        </div>
+      )}
+
+      {foundOpponent && (
+        <div className="match-found-banner">
+          <div className="match-found-content">
+            <span className="match-found-label">OPPONENT FOUND</span>
+            <div className="match-found-players">
+              <div className="match-player">
+                <span className="avatar">{currentUser.avatar}</span>
+                <span className="player-name">{currentUser.name}</span>
+                <span className="player-rating">{currentUser.rating}</span>
+              </div>
+              <span className="vs">VS</span>
+              <div className="match-player">
+                <span className={`avatar ${foundOpponent.color}`}>{foundOpponent.avatar}</span>
+                <span className="player-name">{foundOpponent.name}</span>
+                <span className="player-rating">{foundOpponent.rating}</span>
+              </div>
+            </div>
+          </div>
+          <div className="match-found-actions">
+            <button className="btn-ghost" onClick={() => setFoundOpponent(null)}>Cancel</button>
+            <button className="btn-primary" onClick={startMatch}>Accept & Fight</button>
+          </div>
+        </div>
+      )}
 
       <div className="mode-cards-grid">
-        <button className="mode-card featured" onClick={() => setQueueing(true)}>
+        <button className="mode-card featured" onClick={findRandomMatch}>
           <span className="mode-icon">⚔</span>
           <span className="mode-label">RECOMMENDED</span>
           <h3>Quick match</h3>
@@ -585,16 +763,17 @@ function Lobby({ navigate, queueing, setQueueing }) {
   )
 }
 
-function Arena({ navigate }) {
+function Arena({ navigate, battleMode = false, currentUser, onBattleComplete }) {
   const [language, setLanguage] = useState('JavaScript')
-  const [code, setCode] = useState(`function search(nums, target) {
-  // write your solution here
-  return -1;
-}`)
+  const [code, setCode] = useState(battleQuestions[0].starterCode)
   const [runState, setRunState] = useState('idle')
   const [activeTab, setActiveTab] = useState('problem')
   const [timer, setTimer] = useState(0)
   const [timerRunning, setTimerRunning] = useState(false)
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
+  const [solved, setSolved] = useState([false, false, false])
+  const [questionTimes, setQuestionTimes] = useState([0, 0, 0])
+  const [battleResult, setBattleResult] = useState(null)
 
   // Timer effect
   useEffect(() => {
@@ -621,26 +800,165 @@ function Arena({ navigate }) {
     const secs = seconds % 60
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
   }
-  const testCases = [
-    { input: 'nums = [-1, 0, 3, 5, 9, 12], target = 9', output: '4' },
-    { input: 'nums = [5], target = 5', output: '0' },
-    { input: 'nums = [-1, 0, 3, 5, 9, 12], target = 13', output: '-1' },
-  ]
+
+  const currentQuestion = battleQuestions[currentQuestionIndex]
+  const testCases = currentQuestion.examples.map((ex, i) => ({
+    input: ex.input,
+    output: ex.output
+  }))
+
+  const simulateBotSolving = () => {
+    // Simulate bot solving questions at random times (30-90 seconds per question)
+    const botTimes = battleQuestions.map(() => Math.floor(Math.random() * 60) + 30)
+    const botSolved = battleQuestions.map(() => Math.random() > 0.3) // 70% chance to solve
+    return { times: botTimes, solved: botSolved }
+  }
 
   const runCode = () => {
+    const newSolved = [...solved]
+    const newTimes = [...questionTimes]
+    newSolved[currentQuestionIndex] = true
+    newTimes[currentQuestionIndex] = timer
+    setSolved(newSolved)
+    setQuestionTimes(newTimes)
     setRunState('passed')
     setTimerRunning(false)
+  }
+
+  const nextQuestion = () => {
+    if (currentQuestionIndex < 2) {
+      setCurrentQuestionIndex(currentQuestionIndex + 1)
+      setCode(battleQuestions[currentQuestionIndex + 1].starterCode)
+      setTimer(0)
+      setTimerRunning(true)
+      setRunState('idle')
+    } else {
+      // All questions completed - determine winner
+      const botData = simulateBotSolving()
+      
+      const playerScore = solved.filter(Boolean).length
+      const botScore = botData.solved.filter(Boolean).length
+      
+      const playerTotalTime = questionTimes.reduce((a, b) => a + b, 0)
+      const botTotalTime = botData.times.reduce((a, b) => a + b, 0)
+      
+      let winner = 'draw'
+      let resultMessage = ''
+      
+      if (playerScore > botScore) {
+        winner = 'player'
+        resultMessage = 'Victory! You solved more problems!'
+      } else if (botScore > playerScore) {
+        winner = 'bot'
+        resultMessage = 'Defeat! Your opponent solved more problems.'
+      } else {
+        // Same score - compare times
+        if (playerTotalTime < botTotalTime) {
+          winner = 'player'
+          resultMessage = 'Victory! You were faster!'
+        } else if (botTotalTime < playerTotalTime) {
+          winner = 'bot'
+          resultMessage = 'Defeat! Your opponent was faster.'
+        } else {
+          winner = 'draw'
+          resultMessage = "It's a draw! Both equally matched."
+        }
+      }
+      
+      setBattleResult({
+        winner,
+        playerScore,
+        botScore,
+        playerTotalTime,
+        botTotalTime,
+        botTimes: botData.times,
+        message: resultMessage
+      })
+    }
+  }
+
+  if (battleResult) {
+    return (
+      <div className="page arena-page">
+        <div className="battle-result">
+          <div className={`result-header ${battleResult.winner}`}>
+            <h1>{battleResult.winner === 'player' ? '🎉 Victory!' : battleResult.winner === 'bot' ? '😔 Defeat' : "🤝 It's a Draw!"}</h1>
+            <p>{battleResult.message}</p>
+          </div>
+          
+          <div className="result-comparison">
+            <div className="result-player">
+              <span className="avatar gold">{currentUser?.avatar || 'SA'}</span>
+              <h3>{currentUser?.name || 'You'}</h3>
+              <div className="result-score">
+                <span className="score">{battleResult.playerScore}/3 solved</span>
+                <span className="time">Total: {formatTime(battleResult.playerTotalTime)}</span>
+              </div>
+              <div className="question-results">
+                {battleQuestions.map((q, i) => (
+                  <div key={i} className={`q-result ${solved[i] ? 'solved' : ''}`}>
+                    <span>Q{i + 1}: {solved[i] ? `✓ ${formatTime(battleResult.playerTotalTime > 0 ? questionTimes[i] : 0)}` : '✗'}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            <div className="result-vs">VS</div>
+            
+            <div className="result-player opponent">
+              <span className="avatar blue">{opponentData.avatar}</span>
+              <h3>{opponentData.name}</h3>
+              <div className="result-score">
+                <span className="score">{battleResult.botScore}/3 solved</span>
+                <span className="time">Total: {formatTime(battleResult.botTotalTime)}</span>
+              </div>
+              <div className="question-results">
+                {battleQuestions.map((q, i) => (
+                  <div key={i} className={`q-result ${battleResult.botTimes ? (Math.random() > 0.3 ? 'solved' : '') : ''}`}>
+                    <span>Q{i + 1}: {battleResult.botTimes ? (Math.random() > 0.3 ? `✓ ${formatTime(battleResult.botTimes[i])}` : '✗') : '—'}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          
+          <div className="result-actions">
+            <button className="btn-ghost" onClick={() => navigate('dashboard')}>Back to Dashboard</button>
+            <button className="btn-primary" onClick={() => {
+              setBattleResult(null)
+              setSolved([false, false, false])
+              setQuestionTimes([0, 0, 0])
+              setCurrentQuestionIndex(0)
+              setCode(battleQuestions[0].starterCode)
+              setTimer(0)
+              setTimerRunning(true)
+              setRunState('idle')
+            }}>Rematch</button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
     <div className="page arena-page">
       <div className="arena-header">
         <div>
-          <span className="eyebrow">SOLO SPRINT • PRACTICE</span>
-          <h1>Binary <span className="text-accent">Search</span></h1>
-          <p>Find a target value in a sorted array</p>
+          {battleMode && (
+            <div className="battle-progress">
+              {battleQuestions.map((q, i) => (
+                <span key={i} className={`progress-dot ${i === currentQuestionIndex ? 'active' : ''} ${solved[i] ? 'solved' : ''}`}>{i + 1}</span>
+              ))}
+            </div>
+          )}
+          <span className="eyebrow">{battleMode ? 'BATTLE MODE' : 'SOLO SPRINT • PRACTICE'}</span>
+          <h1>{currentQuestion.title}</h1>
+          <p>Question {currentQuestionIndex + 1} of 3</p>
         </div>
-        <button className="btn-ghost" onClick={() => navigate('dashboard')}>← Exit arena</button>
+        <div className="arena-header-right">
+          <span className="timer">{formatTime(timer)}</span>
+          <button className="btn-ghost" onClick={() => navigate('dashboard')}>← Exit arena</button>
+        </div>
       </div>
 
       <div className="arena-workspace">
@@ -648,32 +966,22 @@ function Arena({ navigate }) {
           <div className="problem-header">
             <button className={`tab ${activeTab === 'problem' ? 'active' : ''}`} onClick={() => setActiveTab('problem')}>Problem</button>
             <button className={`tab ${activeTab === 'submissions' ? 'active' : ''}`} onClick={() => setActiveTab('submissions')}>Submissions</button>
-            <span className="timer">{formatTime(timer)}</span>
+            {solved[currentQuestionIndex] && <span className="solved-badge">✓ Solved in {formatTime(questionTimes[currentQuestionIndex])}</span>}
           </div>
 
           {activeTab === 'problem' && (
           <div className="problem-content">
-            <span className="difficulty-badge medium">Medium</span>
-            <h2>Find the target</h2>
-            <p>Given a sorted array of integers and a target value, return the index of the target if it exists. Otherwise, return <code>-1</code>.</p>
+            <span className={`difficulty-badge ${currentQuestion.difficulty.toLowerCase()}`}>{currentQuestion.difficulty}</span>
+            <h2>{currentQuestion.title}</h2>
+            <p>{currentQuestion.description}</p>
             
             <h3>Constraints</h3>
             <ul>
-              <li>1 ≤ nums.length ≤ 10,000</li>
-              <li>-10,000 ≤ nums[i] ≤ 10,000</li>
-              <li>All elements are unique</li>
-              <li>nums is sorted in ascending order</li>
+              {currentQuestion.constraints.map((c, i) => <li key={i}>{c}</li>)}
             </ul>
 
             <h3>Examples</h3>
-            <pre>{`Input: nums = [-1, 0, 3, 5, 9, 12], target = 9
-Output: 4
-
-Input: nums = [5], target = 5
-Output: 0
-
-Input: nums = [-1, 0, 3, 5, 9, 12], target = 13
-Output: -1`}</pre>
+            <pre>{currentQuestion.examples.map(e => `Input: ${e.input}\nOutput: ${e.output}`).join('\n\n')}</pre>
           </div>
           )}
           {activeTab === 'submissions' && (
@@ -688,7 +996,7 @@ Output: -1`}</pre>
           <div className="editor-header">
             <div className="file-info">
               <span className="file-icon">📄</span>
-              <span className="file-name">solution.js</span>
+              <span className="file-name">solution.{language === 'JavaScript' ? 'js' : language === 'Python' ? 'py' : language === 'TypeScript' ? 'ts' : 'java'}</span>
             </div>
             <select className="lang-select" value={language} onChange={(event) => setLanguage(event.target.value)} aria-label="Programming language">
               {['JavaScript', 'Python', 'TypeScript', 'Java'].map((option) => <option key={option}>{option}</option>)}
@@ -697,14 +1005,14 @@ Output: -1`}</pre>
 
           <div className="code-editor">
             <div className="line-numbers">
-              {[...Array(6)].map((_, i) => (
+              {[...Array(code.split('\n').length)].map((_, i) => (
                 <span key={i}>{String(i + 1).padStart(2, '0')}</span>
               ))}
             </div>
             <textarea
               className="code-input"
               value={code}
-              onChange={(event) => { setCode(event.target.value); setRunState('idle') }}
+              onChange={(event) => { setCode(event.target.value); if (solved[currentQuestionIndex]) setRunState('passed') }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
                   event.preventDefault()
@@ -721,7 +1029,7 @@ Output: -1`}</pre>
             {testCases.map((tc, i) => (
               <div key={i} className={`test-item ${runState === 'passed' ? 'pass' : 'pending'}`}>
                 <span className="status-dot">●</span>
-                <code className="test-input">{tc.input.slice(0, 45)} → {tc.output}</code>
+                <code className="test-input">{tc.input.slice(0, 50)} → {tc.output}</code>
                 <span className={`test-status ${runState === 'passed' ? 'pass' : 'pending'}`}>{runState === 'passed' ? 'PASS' : 'READY'}</span>
               </div>
             ))}
@@ -729,15 +1037,22 @@ Output: -1`}</pre>
 
           <div className="editor-footer">
             <span className="hint">⌘ Enter to run</span>
-            <button className="btn-primary" onClick={runCode}>
-              {runState === 'passed' ? 'Run again' : 'Run solution'}
-              <span>↗</span>
-            </button>
+            <div className="editor-actions">
+              {runState === 'passed' && (
+                <button className="btn-ghost" onClick={nextQuestion}>
+                  {currentQuestionIndex < 2 ? 'Next Question →' : 'See Results'}
+                </button>
+              )}
+              <button className="btn-primary" onClick={runCode}>
+                {solved[currentQuestionIndex] ? 'Run again' : 'Run solution'}
+                <span>↗</span>
+              </button>
+            </div>
           </div>
-          {runState === 'passed' && (
+          {runState === 'passed' && solved[currentQuestionIndex] && (
             <div className="arena-result" role="status">
               <span>✓</span>
-              <div><strong>All mock tests passed</strong><small>Victory secured · +25 rating</small></div>
+              <div><strong>Problem solved in {formatTime(questionTimes[currentQuestionIndex])}</strong><small>{currentQuestionIndex < 2 ? 'Move to next question' : 'Battle complete'}</small></div>
             </div>
           )}
         </section>
