@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import './App.css'
 import './responsive.css'
+import logo from './assets/codeclash-logo.png'
 
 // Navigation items for authenticated pages
 const navItems = [
@@ -102,7 +103,7 @@ function Sidebar({ navItems, route, navigate, logout, currentUser }) {
     <aside className="sidebar">
       <div className="sidebar-header">
         <div className="brand-compact">
-                <img src="/src/assets/codeclash-logo.png" alt="CodeClash" className="brand-logo" />
+                <img src={logo} alt="CodeClash" className="brand-logo" />
                 <span className="brand-text">CODECLASH</span>
               </div>
       </div>
@@ -194,7 +195,7 @@ function LoginPage({ route, navigate, setIsAuthenticated }) {
       <div className="auth-left">
         <div className="auth-left-content">
           <div className="auth-header">
-            <img src="/src/assets/codeclash-logo.png" alt="CodeClash" className="auth-logo" />
+            <img src={logo} alt="CodeClash" className="auth-logo" />
             <span className="auth-brand-name">CODECLASH</span>
           </div>
 
