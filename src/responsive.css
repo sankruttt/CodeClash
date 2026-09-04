@@ -330,7 +330,7 @@ html, body, #root, .app-shell {
   box-shadow: 0 18px 42px rgba(0, 0, 0, .42);
 }
 
-.search-popover label,
+.search-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.search-header label{font-size:10px;color:#77706d;text-transform:uppercase;letter-spacing:1px}.search-close{border:0;background:none;color:#77706d;font-size:12px;cursor:pointer;padding:4px}.search-close:hover{color:var(--cream)}.search-btn{width:100%;margin-top:12px;padding:10px;border:0;border-radius:6px;background:var(--red);color:#151212;font-weight:600;font-size:12px;cursor:pointer}.search-btn:hover{background:#ff5b4d}.search-popover label,
 .popover-label {
   display: block;
   margin-bottom: 9px;

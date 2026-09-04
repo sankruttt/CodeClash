@@ -145,8 +145,8 @@ function Topbar({ currentUser, navigate, activePanel, setActivePanel }) {
         <span className="breadcrumb-text">Ranked Coding Arena</span>
       </div>
       <div className="topbar-right">
-        <button className={`icon-btn ${activePanel === 'search' ? 'active' : ''}`} aria-label="Search" aria-expanded={activePanel === 'search'} onClick={() => togglePanel('search')}>⌕</button>
-        <button className={`icon-btn notification ${activePanel === 'notifications' ? 'active' : ''}`} aria-label="Notifications" aria-expanded={activePanel === 'notifications'} onClick={() => togglePanel('notifications')}>♢<i /></button>
+        <button className={`icon-btn ${activePanel === 'search' ? 'active' : ''}`} aria-label="Search" aria-expanded={activePanel === 'search'} onClick={() => togglePanel('search')}><span className="icon">⌕</span></button>
+        <button className={`icon-btn notification ${activePanel === 'notifications' ? 'active' : ''}`} aria-label="Notifications" aria-expanded={activePanel === 'notifications'} onClick={() => togglePanel('notifications')}><span className="icon">♢</span><i /></button>
         <button className="user-btn" onClick={() => navigate('profile')}>
           <Avatar initials={currentUser.avatar} color={currentUser.color} />
           <span>{currentUser.name}</span>
@@ -154,8 +154,12 @@ function Topbar({ currentUser, navigate, activePanel, setActivePanel }) {
       </div>
       {activePanel === 'search' && (
         <div className="topbar-popover search-popover" role="search">
-          <label htmlFor="global-search">Search</label>
+          <div className="search-header">
+            <label htmlFor="global-search">Search</label>
+            <button className="search-close" onClick={() => setActivePanel(null)}>✕</button>
+          </div>
           <input id="global-search" autoFocus placeholder="Search challenges, players, or matches" />
+          <button className="search-btn">Search</button>
         </div>
       )}
       {activePanel === 'notifications' && (
