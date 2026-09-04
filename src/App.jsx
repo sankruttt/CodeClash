@@ -102,10 +102,9 @@ function Sidebar({ navItems, route, navigate, logout, currentUser }) {
     <aside className="sidebar">
       <div className="sidebar-header">
         <div className="brand-compact">
-          <span className="brand-mark">&lt;/&gt;</span>
-          <span>CODECLASH</span>
-        </div>
-        <div className="platform-badge">RANKED ARENA</div>
+                <img src="/src/assets/codeclash-logo.png" alt="CodeClash" className="brand-logo" />
+                <span className="brand-text">CODECLASH</span>
+              </div>
       </div>
       
       <nav className="nav-main">
@@ -172,10 +171,19 @@ function Topbar({ currentUser, navigate, activePanel, setActivePanel }) {
 function LoginPage({ route, navigate, setIsAuthenticated }) {
   const [email, setEmail] = useState('alex@codeclash.dev')
   const [password, setPassword] = useState('')
+  const [username, setUsername] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [isSignIn, setIsSignIn] = useState(true)
 
   const handleLogin = () => {
     if (email && password) {
+      setIsAuthenticated(true)
+      navigate('dashboard')
+    }
+  }
+
+  const handleCreateAccount = () => {
+    if (email && password && username && password === confirmPassword) {
       setIsAuthenticated(true)
       navigate('dashboard')
     }
@@ -186,8 +194,8 @@ function LoginPage({ route, navigate, setIsAuthenticated }) {
       <div className="auth-left">
         <div className="auth-left-content">
           <div className="auth-header">
-            <span className="brand-mark-lg">&lt;/&gt;</span>
-            <span className="brand-name">CODECLASH</span>
+            <img src="/src/assets/codeclash-logo.png" alt="CodeClash" className="auth-logo" />
+            <span className="auth-brand-name">CODECLASH</span>
           </div>
 
           <div className="auth-tagline">
@@ -240,9 +248,9 @@ function LoginPage({ route, navigate, setIsAuthenticated }) {
       <div className="auth-right">
         <div className="auth-form-wrapper">
           <div className="auth-form-header">
-            <span className="welcome-badge">WELCOME BACK</span>
-            <h2>Ready for your next duel?</h2>
-            <p>Sign in to keep your streak alive and see who is waiting in the lobby.</p>
+            <span className="welcome-badge">{isSignIn ? 'WELCOME BACK' : 'JOIN THE ARENA'}</span>
+            <h2>{isSignIn ? 'Ready for your next duel?' : 'Create your account'}</h2>
+            <p>{isSignIn ? 'Sign in to keep your streak alive and see who is waiting in the lobby.' : 'Start your coding journey and compete against developers worldwide.'}</p>
           </div>
 
           <div className="form-tabs">
@@ -250,7 +258,19 @@ function LoginPage({ route, navigate, setIsAuthenticated }) {
             <button className={`tab ${!isSignIn ? 'active' : ''}`} onClick={() => setIsSignIn(false)}>Create account</button>
           </div>
 
-          <form onSubmit={(e) => { e.preventDefault(); handleLogin(); }} className="auth-form">
+          <form onSubmit={(e) => { e.preventDefault(); isSignIn ? handleLogin() : handleCreateAccount(); }} className="auth-form">
+            {!isSignIn && (
+              <div className="form-group">
+                <label>USERNAME</label>
+                <input
+                  type="text"
+                  placeholder="Choose a username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                />
+              </div>
+            )}
+
             <div className="form-group">
               <label>EMAIL ADDRESS</label>
               <input
@@ -274,12 +294,27 @@ function LoginPage({ route, navigate, setIsAuthenticated }) {
               </div>
             </div>
 
+            {!isSignIn && (
+              <div className="form-group">
+                <label>CONFIRM PASSWORD</label>
+                <div className="password-input-wrapper">
+                  <input
+                    type="password"
+                    placeholder="Confirm your password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                  />
+                  <button type="button" className="toggle-pwd">👁</button>
+                </div>
+              </div>
+            )}
+
             <div className="form-footer form-footer-single">
-              <button type="button" className="link-btn">Forgot password?</button>
+              {isSignIn && <button type="button" className="link-btn">Forgot password?</button>}
             </div>
 
             <button type="submit" className="btn-primary-large">
-              Enter the arena
+              {isSignIn ? 'Enter the arena' : 'Create account'}
               <span>↗</span>
             </button>
           </form>
@@ -454,6 +489,8 @@ function QueueBanner({ setQueueing }) {
 }
 
 function Lobby({ navigate, queueing, setQueueing }) {
+  const [activeDuel, setActiveDuel] = useState(0)
+
   return (
     <div className="page lobby-page">
       <div className="lobby-header">
@@ -501,27 +538,41 @@ function Lobby({ navigate, queueing, setQueueing }) {
           <span className="section-eyebrow">LIVE RIGHT NOW</span>
           <h2>Duels in progress</h2>
         </div>
-        <div className="duels-list">
-          {liveMatches.map((duel, i) => (
-            <div key={i} className="duel-row">
-              <div className="duel-players">
-                <div className="player-info">
-                  <span className="avatar-mini">{duel.player1.slice(0, 2).toUpperCase()}</span>
-                  <span className="player-name">{duel.player1}</span>
-                  <span className="pts">{duel.player1Pts} pts</span>
+        <div className="duel-tabs">
+          {liveMatches.slice(0, 3).map((duel, i) => (
+            <button
+              key={i}
+              className={`duel-tab ${activeDuel === i ? 'active' : ''}`}
+              onClick={() => setActiveDuel(i)}
+            >
+              <span className="tab-number">{i + 1}</span>
+              <span className="tab-players">{duel.player1.slice(0, 2).toUpperCase()} vs {duel.player2.slice(0, 2).toUpperCase()}</span>
+            </button>
+          ))}
+        </div>
+        <div className="duel-content">
+          {liveMatches.slice(0, 3).map((duel, i) => (
+            activeDuel === i && (
+              <div key={i} className="duel-detail">
+                <div className="duel-players">
+                  <div className="player-info">
+                    <span className="avatar-mini">{duel.player1.slice(0, 2).toUpperCase()}</span>
+                    <span className="player-name">{duel.player1}</span>
+                    <span className="pts">{duel.player1Pts} pts</span>
+                  </div>
+                  <span className="vs-badge">vs</span>
+                  <div className="player-info">
+                    <span className="pts">{duel.player2Pts} pts</span>
+                    <span className="player-name">{duel.player2}</span>
+                    <span className="avatar-mini">{duel.player2.slice(0, 2).toUpperCase()}</span>
+                  </div>
                 </div>
-                <span className="vs-badge">vs</span>
-                <div className="player-info">
-                  <span className="pts">{duel.player2Pts} pts</span>
-                  <span className="player-name">{duel.player2}</span>
-                  <span className="avatar-mini">{duel.player2.slice(0, 2).toUpperCase()}</span>
+                <div className="duel-meta">
+                  <span className="problem">{duel.problem}</span>
+                  <span className="timer">⏱ {duel.timer}</span>
                 </div>
               </div>
-              <div className="duel-meta">
-                <span className="problem">{duel.problem}</span>
-                <span className="timer">⏱ {duel.timer}</span>
-              </div>
-            </div>
+            )
           ))}
         </div>
       </section>
