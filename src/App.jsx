@@ -102,10 +102,10 @@ function Sidebar({ navItems, route, navigate, logout, currentUser }) {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <div className="brand-compact">
+        <button className="brand-compact" onClick={() => navigate('dashboard')}>
                 <img src={logo} alt="CodeClash" className="brand-logo" />
                 <span className="brand-text">CODECLASH</span>
-              </div>
+              </button>
       </div>
       
       <nav className="nav-main">
