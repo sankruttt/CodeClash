@@ -83,21 +83,30 @@ app.use(errorHandler);
 
 // ============== START SERVER ==============
 
-async function start() {
-  // Try to connect to MongoDB (non-blocking)
-  await connectDatabase();
+// ============== SERVER ==============
 
-  if (!isMongoConnected()) {
-    await inMemoryStore.seedDefaultUsers();
-    console.log('💾 Seeded in-memory demo users (alice@codeclash.com / Alice123)');
-  }
-  
+// Connect to database
+connectDatabase()
+  .then(async () => {
+    if (!isMongoConnected()) {
+      await inMemoryStore.seedDefaultUsers();
+      console.log('💾 Seeded in-memory demo users');
+    }
+  })
+  .catch((error) => {
+    console.error('Database initialization error:', error);
+  });
+
+// Export Express app for Vercel
+export default app;
+
+// Local development
+if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
     console.log('\n═══════════════════════════════════════════');
     console.log('  🚀 CodeClash API Server v2.0.0');
     console.log('═══════════════════════════════════════════');
     console.log(`  📡 Port: ${PORT}`);
-    console.log(`  💾 Database: ${isMongoConnected() ? '✅ MongoDB' : '⚠️  In-Memory (fallback)'}`);
     console.log(`  🔗 URL: http://localhost:${PORT}`);
     console.log(`  ❤️  Health: http://localhost:${PORT}/api/health`);
     console.log('═══════════════════════════════════════════\n');
