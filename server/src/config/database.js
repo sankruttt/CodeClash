@@ -21,21 +21,16 @@ export async function connectDatabase() {
     });
 
     isConnected = true;
-
     console.log('✅ MongoDB connected successfully');
+
+    return true;
   } catch (error) {
     console.error('❌ MongoDB connection failed:', error.message);
     isConnected = false;
+    return false;
   }
-
-  return isConnected;
 }
 
 export function isMongoConnected() {
   return isConnected && mongoose.connection.readyState === 1;
 }
-
-export default {
-  connectDatabase,
-  isMongoConnected
-};
