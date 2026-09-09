@@ -32,10 +32,18 @@ export async function createPrivateMatch(hostId, type = 'private') {
   if (isMongoConnected()) {
     let roomCode;
     let attempts = 0;
+    const maxAttempts = 50;
     do {
       roomCode = generateRoomCode();
       attempts++;
-    } while (await Match.findOne({ roomCode }) && attempts < 10);
+    } while (await Match.findOne({ roomCode }) && attempts < maxAttempts);
+    
+    if (attempts >= maxAttempts) {
+      const err = new Error('Failed to generate unique room code');
+      err.statusCode = 500;
+      err.code = 'ROOM_CODE_GENERATION_FAILED';
+      throw err;
+    }
     
     const problems = await getRandomProblems(3);
     
@@ -180,6 +188,12 @@ export async function startMatch(matchId, userId) {
       throw err;
     }
     
+    if (match.players.length < 2) {
+      const err = new Error('Cannot start match with less than 2 players');
+      err.statusCode = 400;
+      throw err;
+    }
+    
     match.status = 'ACTIVE';
     match.startedAt = new Date();
     
@@ -249,14 +263,14 @@ export async function completeMatch(matchId) {
   const rating2Before = player2.ratingBefore || 1500;
   
   const rating1Change = calculateRatingChange(rating1Before, rating2Before, result === 'player1' ? 1 : result === 'player2' ? 0 : 0.5);
-  const rating2Change = -rating1Change;
+  const rating2Change = calculateRatingChange(rating2Before, rating1Before, result === 'player2' ? 1 : result === 'player1' ? 0 : 0.5);
   
   player1.ratingAfter = rating1Before + rating1Change;
   player2.ratingAfter = rating2Before + rating2Change;
   player1.ratingChange = rating1Change;
   player2.ratingChange = rating2Change;
-  player1.status = 'finished';
-  player2.status = 'finished';
+  player1.status = 'FINISHED';
+  player2.status = 'FINISHED';
   
   match.status = 'COMPLETED';
   match.winner = winner;

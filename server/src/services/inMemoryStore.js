@@ -2,7 +2,10 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'codeclash-dev-secret-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required');
+}
 
 class InMemoryStore {
   constructor() {
@@ -191,7 +194,13 @@ class InMemoryStore {
   updateUser(id, updates) {
     const user = this.users.get(id);
     if (!user) return null;
-    Object.assign(user, updates);
+    // Allowlist: only update safe fields, never allow id/password overwrite
+    const allowedFields = ['color', 'rating', 'rank', 'wins', 'losses', 'draws', 'streak', 'bestStreak', 'avatar', 'lastLogin'];
+    for (const key of allowedFields) {
+      if (updates[key] !== undefined) {
+        user[key] = updates[key];
+      }
+    }
     return user;
   }
   
@@ -276,8 +285,12 @@ class InMemoryStore {
   
   getRandomProblems(count = 3) {
     const all = Array.from(this.problems.values());
-    const shuffled = all.sort(() => Math.random() - 0.5);
-    return shuffled.slice(0, count);
+    // Fisher-Yates shuffle for uniform randomness
+    for (let i = all.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [all[i], all[j]] = [all[j], all[i]];
+    }
+    return all.slice(0, count);
   }
   
   // ============ MATCHES ============

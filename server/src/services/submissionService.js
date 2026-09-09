@@ -97,12 +97,31 @@ export async function submitCode({ userId, matchId, problemId, code, language })
     throw err;
   }
   
-  // Get problem test cases (mock)
-  const testCases = [
-    { id: '1', input: 'test1', expectedOutput: 'output1' },
-    { id: '2', input: 'test2', expectedOutput: 'output2' },
-    { id: '3', input: 'test3', expectedOutput: 'output3' }
-  ];
+  // Get problem test cases from database or in-memory store
+  let testCases;
+  if (isMongoConnected()) {
+    const TestCase = (await import('../models/TestCase.js')).default;
+    testCases = await TestCase.find({ problemId }).sort({ order: 1 });
+    if (!testCases || testCases.length === 0) {
+      // Fallback to sample test cases if no DB test cases exist
+      testCases = [
+        { id: '1', input: 'test1', expectedOutput: 'output1' },
+        { id: '2', input: 'test2', expectedOutput: 'output2' },
+        { id: '3', input: 'test3', expectedOutput: 'output3' }
+      ];
+    }
+  } else {
+    const TestCase = (await import('../models/TestCase.js')).default;
+    try {
+      testCases = await TestCase.find({ problemId }).sort({ order: 1 });
+    } catch {
+      testCases = [
+        { id: '1', input: 'test1', expectedOutput: 'output1' },
+        { id: '2', input: 'test2', expectedOutput: 'output2' },
+        { id: '3', input: 'test3', expectedOutput: 'output3' }
+      ];
+    }
+  }
   
   // Judge the code
   const result = await judgeCode(code, language, testCases);
@@ -158,13 +177,15 @@ export async function submitCode({ userId, matchId, problemId, code, language })
     );
     
     if (!alreadySolved) {
-      problemResults.push({
+      const newResult = {
         problemId,
         solved: true,
         time: timeFromStart,
         attempts: 1,
         score: 100
-      });
+      };
+      
+      problemResults.push(newResult);
       
       player.problemResults = problemResults;
       player.problemsSolved = problemResults.filter(pr => pr.solved).length;
@@ -180,9 +201,20 @@ export async function submitCode({ userId, matchId, problemId, code, language })
       if (pr) pr.attempts = (pr.attempts || 0) + 1;
     }
     
-    // Save match
+    // Save match atomically
     if (isMongoConnected()) {
-      await match.save();
+      const updateOps = {
+        $set: {
+          [`players.${playerIndex}.problemsSolved`]: player.problemsSolved,
+          [`players.${playerIndex}.totalTime`]: player.totalTime,
+          [`players.${playerIndex}.submissions`]: player.submissions,
+          [`players.${playerIndex}.problemResults`]: player.problemResults
+        }
+      };
+      await Match.findOneAndUpdate({ _id: match._id }, updateOps);
+    } else {
+      // In-memory: save the mutated match object
+      inMemoryStore.updateMatch(match.id || match._id, match);
     }
   } else {
     // Just increment submissions count
@@ -190,7 +222,12 @@ export async function submitCode({ userId, matchId, problemId, code, language })
       (match.players[playerIndex].submissions || 0) + 1;
     
     if (isMongoConnected()) {
-      await match.save();
+      await Match.findOneAndUpdate(
+        { _id: match._id },
+        { $set: { [`players.${playerIndex}.submissions`]: match.players[playerIndex].submissions } }
+      );
+    } else {
+      inMemoryStore.updateMatch(match.id || match._id, match);
     }
   }
   

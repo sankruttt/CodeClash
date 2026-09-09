@@ -16,8 +16,8 @@ const playerResultSchema = new mongoose.Schema({
   submissions: { type: Number, default: 0 },
   status: {
     type: String,
-    enum: ['waiting', 'active', 'finished', 'disconnected'],
-    default: 'waiting'
+    enum: ['WAITING', 'MATCHED', 'ACTIVE', 'FINISHED', 'DISCONNECTED'],
+    default: 'WAITING'
   },
   problemResults: [{
     problemId: { type: mongoose.Schema.Types.ObjectId, ref: 'CodingProblem' },

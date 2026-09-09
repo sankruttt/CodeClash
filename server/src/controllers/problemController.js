@@ -23,7 +23,8 @@ export const getAllProblems = asyncHandler(async (req, res) => {
     if (difficulty) query.difficulty = difficulty;
     if (tags) query.tags = { $in: tags.split(',') };
     
-    problems = await CodingProblem.find(query).limit(parseInt(limit));
+    const safeLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 100);
+    problems = await CodingProblem.find(query).limit(safeLimit);
     problems = problems.map(normalizeProblem);
   } else {
     problems = inMemoryStore.getAllProblems();
@@ -67,7 +68,7 @@ export const getProblem = asyncHandler(async (req, res) => {
 });
 
 export const getRandomProblems = asyncHandler(async (req, res) => {
-  const count = parseInt(req.query.count) || 3;
+  const count = Math.min(Math.max(parseInt(req.query.count) || 3, 1), 10);
   
   let problems;
   if (isMongoConnected()) {

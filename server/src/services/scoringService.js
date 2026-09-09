@@ -55,10 +55,13 @@ export async function updatePlayerStatsAfterMatch(userId, match, playerResult) {
     
     stats.currentRating = playerResult.ratingAfter;
     stats.peakRating = Math.max(stats.peakRating || 1500, playerResult.ratingAfter || 1500);
-    stats.problemsAttempted += match.problems?.length || 0;
     stats.problemsSolved += playerResult.problemsSolved || 0;
+    stats.problemsAttempted += playerResult.submissions > 0 ? (playerResult.problemResults?.length || playerResult.problemsSolved || 0) : 0;
     stats.lastMatchAt = new Date();
     
+    if (!Array.isArray(stats.ratingHistory)) {
+      stats.ratingHistory = [];
+    }
     stats.ratingHistory.push({
       rating: playerResult.ratingAfter,
       change: playerResult.ratingChange,
@@ -106,8 +109,8 @@ export async function updatePlayerStatsAfterMatch(userId, match, playerResult) {
     
     stats.currentRating = playerResult.ratingAfter;
     stats.peakRating = Math.max(stats.peakRating || 1500, playerResult.ratingAfter || 1500);
-    stats.problemsAttempted += match.problems?.length || 0;
     stats.problemsSolved += (playerResult.problemsSolved || 0);
+    stats.problemsAttempted += playerResult.submissions > 0 ? (playerResult.problemResults?.length || playerResult.problemsSolved || 0) : 0;
     stats.lastMatchAt = new Date();
 
     inMemoryStore.updateUser(userId, {

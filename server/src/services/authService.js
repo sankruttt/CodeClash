@@ -4,7 +4,10 @@ import User from '../models/User.js';
 import PlayerStatistics from '../models/PlayerStatistics.js';
 import { inMemoryStore } from './inMemoryStore.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'codeclash-dev-secret-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required');
+}
 const JWT_EXPIRES_IN = '7d';
 
 function generateToken(user) {
@@ -36,12 +39,21 @@ export async function registerUser({ username, email, password, avatar }) {
     
     const user = await User.create({ username, email, password, avatar: avatar || username.slice(0, 2).toUpperCase() });
 
-    await PlayerStatistics.create({
-      userId: user._id,
-      username: user.username,
-      currentRating: user.rating,
-      peakRating: user.rating
-    });
+    try {
+      await PlayerStatistics.create({
+        userId: user._id,
+        username: user.username,
+        currentRating: user.rating,
+        peakRating: user.rating
+      });
+    } catch (statsError) {
+      // Rollback: delete the user if stats creation fails
+      await User.findByIdAndDelete(user._id);
+      const err = new Error('Failed to create user profile');
+      err.statusCode = 500;
+      err.code = 'PROFILE_CREATION_FAILED';
+      throw err;
+    }
     
     const token = generateToken(user);
     return {

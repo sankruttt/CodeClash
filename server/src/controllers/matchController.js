@@ -72,6 +72,28 @@ export const startBattle = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user.id;
   
+  // Verify user is a participant in this match
+  const existingMatch = await getMatchById(id);
+  if (!existingMatch) {
+    return res.status(404).json({
+      success: false,
+      error: 'MATCH_NOT_FOUND',
+      message: 'Match not found'
+    });
+  }
+  
+  const isParticipant = existingMatch.players.some(p => 
+    p.userId.toString() === userId.toString()
+  );
+  
+  if (!isParticipant) {
+    return res.status(403).json({
+      success: false,
+      error: 'NOT_PARTICIPANT',
+      message: 'You are not a participant in this match'
+    });
+  }
+  
   const match = await startMatch(id, userId);
   
   res.json({
@@ -109,6 +131,15 @@ export const completeBattle = asyncHandler(async (req, res) => {
     });
   }
   
+  // Verify match is in a completable state
+  if (match.status !== 'ACTIVE') {
+    return res.status(400).json({
+      success: false,
+      error: 'MATCH_NOT_ACTIVE',
+      message: 'Match is not currently active and cannot be completed'
+    });
+  }
+  
   // Complete the match (server calculates winner)
   const completedMatch = await completeMatch(id);
   
@@ -128,6 +159,7 @@ export const completeBattle = asyncHandler(async (req, res) => {
 
 export const getMatchByCode = asyncHandler(async (req, res) => {
   const { code } = req.params;
+  const userId = req.user.id;
   
   const match = await getMatchByRoomCode(code);
   
@@ -136,6 +168,19 @@ export const getMatchByCode = asyncHandler(async (req, res) => {
       success: false,
       error: 'MATCH_NOT_FOUND',
       message: 'Match not found'
+    });
+  }
+  
+  // Verify user is a participant in this match
+  const isParticipant = match.players.some(p => 
+    p.userId.toString() === userId.toString()
+  );
+  
+  if (!isParticipant) {
+    return res.status(403).json({
+      success: false,
+      error: 'NOT_PARTICIPANT',
+      message: 'You are not a participant in this match'
     });
   }
   

@@ -175,12 +175,34 @@ async function seedUsers() {
         }
         
         // Hash password for in-memory store too
-        await inMemoryStore.createUser({
+        const { user } = await inMemoryStore.createUser({
           username: userData.username,
           email: userData.email,
           password: userData.password,
           avatar: userData.avatar
         });
+        
+        // Set the user's stats (rating, wins, etc.)
+        inMemoryStore.updateUser(user.id, {
+          color: userData.color,
+          rating: userData.rating,
+          wins: userData.wins,
+          losses: userData.losses,
+          streak: userData.streak
+        });
+        
+        // Update statistics
+        inMemoryStore.updateStatistics(user.id, {
+          currentRating: userData.rating,
+          peakRating: userData.rating,
+          totalWins: userData.wins,
+          totalLosses: userData.losses,
+          totalMatches: userData.wins + userData.losses,
+          currentStreak: userData.streak,
+          bestStreak: Math.max(0, userData.streak),
+          winRate: Math.round((userData.wins / (userData.wins + userData.losses)) * 100)
+        });
+        
         console.log(`✅ Created: ${userData.username} (rating: ${userData.rating})`);
         created++;
       } catch (error) {

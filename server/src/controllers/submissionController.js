@@ -7,7 +7,7 @@ export const submit = asyncHandler(async (req, res) => {
   
   const result = await submitCode({ userId, matchId, problemId, code, language });
   
-  res.json({
+  res.status(201).json({
     success: true,
     message: 'Code submitted',
     data: result

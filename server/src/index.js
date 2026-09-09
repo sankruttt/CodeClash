@@ -213,7 +213,9 @@ export default app;
 // ============================================================
 
 if (process.env.NODE_ENV !== 'production') {
-  initializeDatabase();
+  initializeDatabase().catch(err => {
+    console.error('❌ Fatal: Database initialization failed:', err.message);
+  });
 
   app.listen(PORT, () => {
     console.log('');

@@ -44,9 +44,14 @@ export async function findMatch(userId) {
     return null;
   }
   
-  // Remove both from queue
-  inMemoryStore.removeFromQueue(userId);
-  inMemoryStore.removeFromQueue(opponent.userId);
+  // Atomically remove both from queue to prevent double-matching
+  const removedSelf = inMemoryStore.removeFromQueue(userId);
+  const removedOpponent = inMemoryStore.removeFromQueue(opponent.userId);
+  
+  // If either removal failed, another request already matched them
+  if (!removedSelf || !removedOpponent) {
+    return null;
+  }
   
   // Create a match between them
   let match = await createPrivateMatch(userId, 'ranked');
