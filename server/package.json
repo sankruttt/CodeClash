@@ -5,7 +5,9 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "seed": "node src/scripts/seed.js"
+    "seed": "node src/scripts/seed.js",
+    "vercel": "vercel",
+    "vercel-deploy": "vercel --prod"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
