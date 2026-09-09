@@ -97,7 +97,6 @@ connectDatabase()
     console.error('Database initialization error:', error);
   });
 
-// Export Express app for Vercel
 export default app;
 
 // Local development
