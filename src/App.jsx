@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import './App.css'
 import './responsive.css'
 import logo from './assets/codeclash-logo.png'
+import { roomAPI, matchAPI } from './services/api'
 
 // Navigation items for authenticated pages
 const navItems = [
@@ -124,18 +125,31 @@ const opponents = [
   { name: 'James Liu', handle: '@jliu', avatar: 'JL', color: 'blue', rating: 2420 },
 ]
 
+// Generate or retrieve unique player ID for this session (persists in sessionStorage)
+function getPlayerId() {
+  let id = sessionStorage.getItem('codeclash_player_id')
+  if (!id) {
+    id = 'player_' + Math.random().toString(36).substr(2, 9)
+    sessionStorage.setItem('codeclash_player_id', id)
+  }
+  return id
+}
+
+const playerId = getPlayerId()
+
 // Current user profile
 const currentUser = {
-  name: 'Sankrut',
-  handle: '@sankrut',
-  avatar: 'SA',
+  id: playerId,
+  name: 'Player',
+  handle: playerId,
+  avatar: 'PL',
   color: 'gold',
-  rating: 2710,
-  rank: 2,
-  wins: 38,
-  losses: 15,
-  streak: 7,
-  joinDate: '2025-01-15',
+  rating: 1500,
+  rank: 0,
+  wins: 0,
+  losses: 0,
+  streak: 0,
+  joinDate: new Date().toISOString(),
 }
 
 function App() {
@@ -169,6 +183,7 @@ function App() {
         {route === 'dashboard' && <Dashboard navigate={navigate} queueing={queueing} setQueueing={setQueueing} currentUser={currentUser} />}
         {route === 'lobby' && <Lobby navigate={navigate} queueing={queueing} setQueueing={setQueueing} currentUser={currentUser} />}
         {route === 'arena' && <Arena navigate={navigate} battleMode={true} currentUser={currentUser} />}
+        {route === 'private-room' && <PrivateRoom navigate={navigate} currentUser={currentUser} />}
         {route === 'leaderboard' && <Leaderboard />}
         {route === 'history' && <History />}
         {route === 'profile' && <Profile navigate={navigate} currentUser={currentUser} />}
@@ -707,7 +722,7 @@ function Lobby({ navigate, queueing, setQueueing, currentUser }) {
           <div className="mode-meta">Start training <span>↗</span></div>
         </button>
         
-        <button className="mode-card" onClick={() => navigate('arena')}>
+        <button className="mode-card" onClick={() => navigate('private-room')}>
           <span className="mode-icon">#</span>
           <span className="mode-label">CUSTOM</span>
           <h3>Private room</h3>
@@ -1224,5 +1239,202 @@ function Profile({ navigate, currentUser }) {
   )
 }
 
+
+function PrivateRoom({ navigate, currentUser }) {
+  const [mode, setMode] = useState('menu') // menu, create, join, waiting, ready
+  const [roomCode, setRoomCode] = useState('')
+  const [inputCode, setInputCode] = useState('')
+  const [error, setError] = useState('')
+  const [room, setRoom] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [pollInterval, setPollInterval] = useState(null)
+
+  useEffect(() => {
+    return () => {
+      if (pollInterval) clearInterval(pollInterval)
+    }
+  }, [pollInterval])
+
+  const createRoom = async () => {
+    setLoading(true)
+    setError('')
+    console.log('Creating room with player ID:', currentUser.id)
+    try {
+      const { room: newRoom } = await roomAPI.createRoom(currentUser.id, currentUser.name)
+      console.log('Room created:', newRoom)
+      setRoom(newRoom)
+      setMode('waiting')
+      
+      // Start polling for updates
+      const interval = setInterval(async () => {
+        try {
+          const { room: updatedRoom } = await roomAPI.getRoom(newRoom.code)
+          console.log('Room status:', updatedRoom.status)
+          setRoom(updatedRoom)
+          
+          if (updatedRoom.status === 'ready') {
+            console.log('Room is ready!')
+            setMode('ready')
+            clearInterval(interval)
+          } else if (updatedRoom.status === 'in_progress') {
+            console.log('Battle starting!')
+            clearInterval(interval)
+            navigate('arena')
+          }
+        } catch (e) {
+          // Room might be deleted
+          console.log('Room poll error:', e)
+          clearInterval(interval)
+          setError('Room was closed')
+          setMode('menu')
+        }
+      }, 1000)
+      setPollInterval(interval)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const joinRoom = async () => {
+    if (!inputCode.trim()) {
+      setError('Please enter a room code')
+      return
+    }
+    
+    setLoading(true)
+    setError('')
+    console.log('Joining room:', inputCode.toUpperCase(), 'with player ID:', currentUser.id)
+    try {
+      const { room: joinedRoom } = await roomAPI.joinRoom(inputCode.toUpperCase(), currentUser.id, currentUser.name)
+      console.log('Joined room:', joinedRoom)
+      setRoom(joinedRoom)
+      setRoomCode(inputCode.toUpperCase())
+      setMode('ready')
+    } catch (e) {
+      console.error('Join room error:', e)
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const startBattle = async () => {
+    setLoading(true)
+    try {
+      const { room: startedRoom } = await roomAPI.startBattle(room.code)
+      setRoom(startedRoom)
+      navigate('arena')
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const leaveRoom = async () => {
+    if (room) {
+      try {
+        await roomAPI.leaveRoom(room.code, currentUser.id)
+      } catch (e) {
+        console.error('Failed to leave room:', e)
+      }
+    }
+    if (pollInterval) clearInterval(pollInterval)
+    setRoom(null)
+    setMode('menu')
+    setRoomCode('')
+    setInputCode('')
+    setError('')
+  }
+
+  return (
+    <div className="page private-room-page">
+      <div className="private-room-header">
+        <button className="btn-ghost" onClick={() => navigate('lobby')}>← Back to Lobby</button>
+      </div>
+
+      {mode === 'menu' && (
+        <div className="private-room-menu">
+          <h1>Private Room</h1>
+          <p>Create a private room or join one with a code</p>
+          
+          <div className="private-room-options">
+            <button className="private-room-option" onClick={createRoom} disabled={loading}>
+              <span className="option-icon">+</span>
+              <span className="option-title">Create Room</span>
+              <span className="option-desc">Generate a room code and wait for an opponent</span>
+            </button>
+            
+            <div className="private-room-join">
+              <h3>Join with Code</h3>
+              <div className="join-input-group">
+                <input
+                  type="text"
+                  placeholder="Enter 6-digit code"
+                  value={inputCode}
+                  onChange={(e) => setInputCode(e.target.value.toUpperCase())}
+                  maxLength={6}
+                />
+                <button onClick={joinRoom} disabled={loading}>Join</button>
+              </div>
+            </div>
+          </div>
+          
+          {error && <div className="error-message">{error}</div>}
+        </div>
+      )}
+
+      {mode === 'waiting' && room && (
+        <div className="private-room-waiting">
+          <h1>Room Created</h1>
+          <p>Share this code with your opponent</p>
+          
+          <div className="room-code-display">
+            <span className="room-code">{room.code}</span>
+          </div>
+          
+          <div className="waiting-info">
+            <div className="spinner"></div>
+            <p>Waiting for opponent to join...</p>
+          </div>
+          
+          <button className="btn-ghost" onClick={leaveRoom}>Cancel</button>
+        </div>
+      )}
+
+      {mode === 'ready' && room && (
+        <div className="private-room-ready">
+          <h1>Opponent Found!</h1>
+          
+          <div className="matchup-display">
+            <div className="player-card">
+              <span className="avatar gold">{currentUser.avatar}</span>
+              <h3>{currentUser.name}</h3>
+              <span className="player-rating">{currentUser.rating} pts</span>
+            </div>
+            
+            <div className="vs-badge">VS</div>
+            
+            <div className="player-card opponent">
+              <span className="avatar blue">{room.guestId === currentUser.id ? room.hostName?.[0] : room.guestName?.[0]}</span>
+              <h3>{room.guestId === currentUser.id ? room.hostName : room.guestName}</h3>
+              <span className="player-rating">— pts</span>
+            </div>
+          </div>
+          
+          {error && <div className="error-message">{error}</div>}
+          
+          <button className="btn-primary" onClick={startBattle} disabled={loading}>
+            Start Battle
+            <span>↗</span>
+          </button>
+          <button className="btn-ghost" onClick={leaveRoom}>Cancel</button>
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default App
