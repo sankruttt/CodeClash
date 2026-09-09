@@ -1,5 +1,19 @@
+import mongoose from 'mongoose';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const MONGODB_URI = process.env.MONGODB_URI;
+
+let isConnected = false;
+
 export async function connectDatabase() {
-  if (isConnected) return;
+  if (isConnected) return true;
+
+  if (!MONGODB_URI) {
+    console.error('❌ MONGODB_URI is not configured');
+    return false;
+  }
 
   try {
     await mongoose.connect(MONGODB_URI, {
@@ -16,3 +30,12 @@ export async function connectDatabase() {
 
   return isConnected;
 }
+
+export function isMongoConnected() {
+  return isConnected && mongoose.connection.readyState === 1;
+}
+
+export default {
+  connectDatabase,
+  isMongoConnected
+};
