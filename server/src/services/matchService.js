@@ -4,7 +4,7 @@ import { inMemoryStore } from './inMemoryStore.js';
 import { calculateRatingChange } from './scoringService.js';
 import { getUserById } from './authService.js';
 
-async function buildPlayerEntry(userId, status = 'waiting') {
+async function buildPlayerEntry(userId, status = 'WAITING') {
   const user = await getUserById(userId);
   return {
     userId,
