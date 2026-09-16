@@ -84,8 +84,9 @@ export const leave = asyncHandler(async (req, res) => {
 
 export const start = asyncHandler(async (req, res) => {
   const { code } = req.params;
+  const requesterId = req.body?.userId || req.body?.playerId || req.body?.hostId || req.user?.id;
 
-  const room = await roomService.startRoomByCode(code);
+  const room = await roomService.startRoomByCode(code, requesterId);
 
   res.json({
     success: true,

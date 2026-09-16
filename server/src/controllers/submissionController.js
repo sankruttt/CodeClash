@@ -1,5 +1,6 @@
 import { submitCode, getSubmissionsByMatch } from '../services/submissionService.js';
 import { executeCode } from '../services/compilerService.js';
+import { recordUserActivity } from '../services/streakService.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 
 export const submit = asyncHandler(async (req, res) => {
@@ -8,13 +9,19 @@ export const submit = asyncHandler(async (req, res) => {
 
   const result = await submitCode({ userId, matchId, problemId, code, language });
 
+  let streakData = null;
+  if (userId && !String(userId).startsWith('guest_')) {
+    streakData = await recordUserActivity(userId).catch(() => null);
+  }
+
   res.status(200).json({
     success: true,
     message: 'Code submitted',
     data: {
       ...result,
       status: result.submission?.status || 'Accepted',
-      submission: result.submission
+      submission: result.submission,
+      streak: streakData
     }
   });
 });

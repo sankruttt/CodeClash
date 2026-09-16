@@ -6,17 +6,14 @@ export const registerSchema = z.object({
   username: z.string()
     .min(3, 'Username must be at least 3 characters')
     .max(30, 'Username cannot exceed 30 characters')
-    .regex(/^[a-zA-Z0-9_]+$/, 'Username can only contain letters, numbers, and underscores'),
+    .regex(/^[a-zA-Z0-9_.-]+$/, 'Username can only contain letters, numbers, underscores, dashes, or dots'),
   email: z.string()
     .email('Invalid email address')
     .toLowerCase(),
   password: z.string()
-    .min(8, 'Password must be at least 8 characters')
-    .max(100, 'Password too long')
-    .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
-    .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
-    .regex(/[0-9]/, 'Password must contain at least one number'),
-  avatar: z.string().max(3).optional()
+    .min(6, 'Password must be at least 6 characters')
+    .max(100, 'Password too long'),
+  avatar: z.string().max(10).optional()
 });
 
 export const loginSchema = z.object({
@@ -54,7 +51,7 @@ export const submitCodeSchema = z.object({
   code: z.string()
     .min(1, 'Code cannot be empty')
     .max(50000, 'Code too long (max 50000 chars)'),
-  language: z.enum(['javascript', 'python', 'typescript', 'java']),
+  language: z.enum(['javascript', 'python', 'typescript', 'java', 'c', 'cpp', 'c++']),
   playerId: z.string().optional()
 }).passthrough();
 
@@ -74,7 +71,9 @@ export const createProblemSchema = z.object({
     javascript: z.string().optional(),
     python: z.string().optional(),
     typescript: z.string().optional(),
-    java: z.string().optional()
+    java: z.string().optional(),
+    c: z.string().optional(),
+    cpp: z.string().optional()
   }).optional(),
   tags: z.array(z.string()).default([]),
   timeLimit: z.number().int().min(1).max(3600).default(60),
@@ -87,30 +86,31 @@ export const createProblemSchema = z.object({
 export function validate(schema, source = 'body') {
   return (req, res, next) => {
     try {
-      const data = source === 'body' ? req.body : 
-                   source === 'params' ? req.params : 
-                   source === 'query' ? req.query : req.body;
-      
+      const data = source === 'body' ? req.body :
+        source === 'params' ? req.params :
+          source === 'query' ? req.query : req.body;
+
       const result = schema.safeParse(data);
-      
+
       if (!result.success) {
         const issues = result.error.issues || result.error.errors || [];
+        const issueMsg = issues.map(e => e.message).filter(Boolean).join('. ') || 'Invalid request data';
         return res.status(400).json({
           success: false,
           error: 'VALIDATION_ERROR',
-          message: 'Invalid request data',
+          message: issueMsg,
           details: issues.map(e => ({
             field: (e.path || []).join('.'),
             message: e.message
           }))
         });
       }
-      
+
       // Replace with validated/transformed data
       if (source === 'body') req.body = result.data;
       else if (source === 'params') req.params = result.data;
       else req.query = result.data;
-      
+
       next();
     } catch (error) {
       next(error);

@@ -1,9 +1,64 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { getTierDetails } from '../utils/tierUtils';
+import { authAPI, leaderboardAPI } from '../services/api';
 
 export default function ProfileView({ navigate, currentUser }) {
-  const rating = currentUser?.rating || 2148;
-  const tierInfo = getTierDetails(rating, currentUser?.tier);
+  const [profileData, setProfileData] = useState(currentUser || null);
+  const [liveRank, setLiveRank] = useState(currentUser?.rank || null);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function loadFreshProfile() {
+      try {
+        const res = await authAPI.getMe().catch(() => null);
+        const u = res?.data?.user || res?.data;
+        const streakRes = await authAPI.getStreak().catch(() => null);
+        const s = streakRes?.data || streakRes;
+        if (u && !isCancelled) {
+          setProfileData((prev) => ({
+            ...prev,
+            ...u,
+            ...(s && typeof s.streak === 'number' ? {
+              streak: s.streak,
+              longestStreak: s.longestStreak,
+              todayCompleted: s.todayCompleted,
+              activityHistory: s.activityHistory,
+              weeklyIndicators: s.weeklyIndicators
+            } : {})
+          }));
+          const targetId = u._id || u.id;
+          if (targetId) {
+            const rankRes = await leaderboardAPI.getUserRank(targetId).catch(() => null);
+            const rank = rankRes?.data?.rank || rankRes?.data;
+            if (rank && !isCancelled) {
+              setLiveRank(rank);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load fresh profile in ProfileView:', err.message);
+      }
+    }
+
+    loadFreshProfile();
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentUser]);
+
+  const user = profileData || currentUser;
+  const rating = user?.rating || 1500;
+  const tierInfo = getTierDetails(rating, user?.tier);
+  const wins = user?.wins ?? 0;
+  const losses = user?.losses ?? 0;
+  const totalMatches = wins + losses;
+  const winRate = totalMatches > 0 ? ((wins / totalMatches) * 100).toFixed(1) : '0.0';
+  const streak = user?.streak ?? 0;
+  const longestStreak = user?.longestStreak ?? user?.bestStreak ?? streak;
+  const todayCompleted = Boolean(user?.todayCompleted);
+  const streakDisplay = `${streak} ${streak === 1 ? 'DAY' : 'DAYS'}`;
+  const rankDisplay = liveRank ? `#${liveRank}` : user?.rank ? `#${user.rank}` : 'Unranked';
 
   const masteryCategories = [
     { name: 'Dynamic Programming & Memoization', tier: 'Grandmaster', pct: 96, color: 'bg-indigo-600' },
@@ -22,7 +77,7 @@ export default function ProfileView({ navigate, currentUser }) {
             <div className="flex items-center gap-5">
               <div className="relative">
                 <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-sky-400 text-white font-mono font-black flex items-center justify-center text-2xl shadow-md ring-4 ring-indigo-50">
-                  {currentUser?.avatar || 'KV'}
+                  {user?.avatar || (user?.name || user?.username || 'KV').slice(0, 2).toUpperCase()}
                 </div>
                 <span className="absolute -bottom-1 -right-1 px-2 py-0.5 rounded-full bg-emerald-500 text-white font-mono text-[10px] font-bold ring-2 ring-white">
                   ONLINE
@@ -32,14 +87,14 @@ export default function ProfileView({ navigate, currentUser }) {
               <div>
                 <div className="flex items-center gap-2">
                   <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
-                    {currentUser?.name || 'Kaelen Vance'}
+                    {user?.name || user?.username || 'Combatant'}
                   </h1>
                   <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 font-mono text-xs font-semibold border border-indigo-200">
                     {tierInfo.currentTier.toUpperCase()}
                   </span>
                 </div>
                 <div className="font-mono text-xs text-indigo-600 font-medium mt-0.5">
-                  {currentUser?.handle || '@Kaelen_V'}
+                  {user?.handle || (user?.username ? `@${user.username}` : '@combatant')}
                 </div>
                 <p className="text-xs text-slate-500 mt-1 font-sans">
                   Competitive algorithmic duelist. Specializing in high-frequency graphs and concurrency vectors.
@@ -99,26 +154,33 @@ export default function ProfileView({ navigate, currentUser }) {
               </div>
               <div className="text-[10px] text-emerald-600 font-semibold mt-1 flex items-center gap-0.5">
                 <span className="material-symbols-outlined text-xs">trending_up</span>
-                <span>Peak 2,210 (+32 Today)</span>
+                <span>Active ({tierInfo.currentTier})</span>
               </div>
             </div>
 
             <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/70">
               <div className="text-[10px] uppercase text-slate-400 font-medium">Global Ladder</div>
-              <div className="text-2xl font-black text-slate-900 mt-0.5">#142</div>
-              <div className="text-[10px] text-slate-500 mt-1">Active Pool: 42,910</div>
+              <div className="text-2xl font-black text-slate-900 mt-0.5">{rankDisplay}</div>
+              <div className="text-[10px] text-slate-500 mt-1">Live Competitive Standing</div>
             </div>
 
             <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/70">
               <div className="text-[10px] uppercase text-slate-400 font-medium">Duel Win Rate</div>
-              <div className="text-2xl font-black text-slate-900 mt-0.5">68.4%</div>
-              <div className="text-[10px] text-slate-500 mt-1">142W - 66L (208 Matches)</div>
+              <div className="text-2xl font-black text-slate-900 mt-0.5">{winRate}%</div>
+              <div className="text-[10px] text-slate-500 mt-1">{wins}W - {losses}L ({totalMatches} Matches)</div>
             </div>
 
             <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/70">
-              <div className="text-[10px] uppercase text-slate-400 font-medium">Momentum</div>
-              <div className="text-2xl font-black text-amber-600 mt-0.5">7 STREAK</div>
-              <div className="text-[10px] text-amber-700 font-semibold mt-1">Hot Status Active (x1.5 LP)</div>
+              <div className="flex items-center justify-between text-[10px] uppercase text-slate-400 font-medium">
+                <span>Daily Streak</span>
+                <span className="material-symbols-outlined text-xs text-amber-500">local_fire_department</span>
+              </div>
+              <div className="text-2xl font-black text-amber-600 mt-0.5">{streakDisplay}</div>
+              <div className={`text-[10px] font-semibold mt-1 ${todayCompleted ? 'text-emerald-700' : 'text-amber-700'}`}>
+                {todayCompleted
+                  ? `✓ Active Today • Record: ${longestStreak}d`
+                  : `Pending Today • Best: ${longestStreak}d`}
+              </div>
             </div>
           </div>
         </section>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import logoImg from '../assets/codeclash-logo.png';
+import { authAPI, setAuthToken } from '../services/api';
 
 const STITCH_LOGO_URL =
   'https://lh3.googleusercontent.com/aida/AEtjO1VkaA6KQmBEfQfLHrYIjjR4oGKWIHp1_CurDV8dkUOLfm1wboPXJDDOmiO5_Q53SFKmerv3V5dASxAes2QZ-yTXXenCF6yKwyLIXHfUUPl8D8tSTN5le0QvrjWh8S6juas_AMrCR3zcvP88ujMW1j8OexMQ66cxqVtd5iNHn2TfzJFyMz6Y7pPsl3P16O_L7a-ZoUxxhgm52M3B-owITbZTNWjcuONl60VhdeU7hfHLiuFQ31CuCvkvAkk';
@@ -8,13 +9,30 @@ export default function LandingLoginView({ navigate, onLoginSuccess }) {
   const [email, setEmail] = useState('alex@codeclash.dev');
   const [password, setPassword] = useState('password123');
   const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (onLoginSuccess) {
-      onLoginSuccess({ email });
-    } else {
-      navigate('dashboard');
+    setErrorMessage('');
+    setIsLoading(true);
+
+    try {
+      const res = await authAPI.login(email.trim(), password);
+      if (res && res.data && res.data.token) {
+        setAuthToken(res.data.token);
+        if (onLoginSuccess) {
+          onLoginSuccess({ user: res.data.user, token: res.data.token });
+        } else {
+          navigate('dashboard');
+        }
+      } else {
+        throw new Error(res?.message || 'Login failed. Please check your credentials.');
+      }
+    } catch (err) {
+      setErrorMessage(err.message || 'Invalid email or password');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -97,26 +115,17 @@ export default function LandingLoginView({ navigate, onLoginSuccess }) {
               Ready for your next duel?
             </h2>
 
-            <p className="text-center text-sm text-slate-500 mb-8 font-normal leading-normal max-w-sm mx-auto">
-              Sign in to keep your streak alive and see who is waiting in the lobby.
+            <p className="text-center text-sm text-slate-500 mb-6 font-normal leading-normal max-w-sm mx-auto">
+              Authenticate via encrypted neural handshake to resume ladder climb.
             </p>
 
-            {/* Tab Selector: SIGN IN vs CREATE ACCOUNT */}
-            <div className="border-b border-slate-200 grid grid-cols-2 mb-8">
-              <button
-                type="button"
-                className="pb-3 text-center font-mono text-xs uppercase tracking-wider font-bold text-indigo-600 border-b-2 border-indigo-600 transition-colors"
-              >
-                SIGN IN
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate('register')}
-                className="pb-3 text-center font-mono text-xs uppercase tracking-wider font-medium text-slate-500 hover:text-slate-800 border-b-2 border-transparent transition-colors"
-              >
-                CREATE ACCOUNT
-              </button>
-            </div>
+            {/* Error Message Alert */}
+            {errorMessage && (
+              <div className="mb-5 p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 font-mono text-xs flex items-center gap-2">
+                <span className="material-symbols-outlined text-sm shrink-0">error</span>
+                <span>{errorMessage}</span>
+              </div>
+            )}
 
             {/* Form */}
             <form onSubmit={handleSubmit} className="space-y-5">
@@ -155,56 +164,41 @@ export default function LandingLoginView({ navigate, onLoginSuccess }) {
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     aria-label="Toggle password visibility"
-                    className="absolute inset-y-0 right-0 flex items-center pr-3.5 text-slate-400 hover:text-slate-600 transition-colors"
+                    className="absolute inset-y-0 right-0 flex items-center pr-3.5 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
                   >
                     <span className="material-symbols-outlined text-[18px]">
                       {showPassword ? 'visibility_off' : 'visibility'}
                     </span>
                   </button>
                 </div>
-                <div className="flex justify-end mt-2">
-                  <a href="#forgot" className="text-xs text-slate-500 hover:text-indigo-600 underline underline-offset-4 transition-colors">
-                    Forgot password?
-                  </a>
-                </div>
               </div>
 
               <div className="pt-2">
                 <button
                   type="submit"
-                  className="w-full py-3.5 px-6 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-extrabold text-sm tracking-wider uppercase flex items-center justify-center space-x-2 transition duration-150 shadow-md shadow-indigo-500/25"
+                  disabled={isLoading}
+                  className={`w-full py-3.5 px-6 rounded-lg font-extrabold text-sm tracking-wider uppercase flex items-center justify-center space-x-2 transition duration-150 shadow-md ${
+                    isLoading
+                      ? 'bg-indigo-400 text-white cursor-not-allowed'
+                      : 'bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white shadow-indigo-500/25 cursor-pointer'
+                  }`}
                 >
-                  <span>ENTER THE ARENA</span>
+                  <span>{isLoading ? 'AUTHENTICATING...' : 'ENTER THE ARENA'}</span>
                   <span className="text-base font-black">↗</span>
                 </button>
               </div>
             </form>
 
-            <div className="relative my-6">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-200"></div>
-              </div>
-              <div className="relative flex justify-center text-xs">
-                <span className="bg-white px-3 font-mono text-[11px] tracking-wider uppercase text-slate-400">
-                  OR CONTINUE WITH
-                </span>
-              </div>
+            <div className="mt-6 text-center text-xs font-mono text-slate-500">
+              Need to create a combat profile?{' '}
+              <button
+                type="button"
+                onClick={() => navigate('register')}
+                className="text-indigo-600 hover:text-indigo-700 font-bold underline underline-offset-4 cursor-pointer"
+              >
+                Register Now
+              </button>
             </div>
-
-            {/* Google OAuth Button */}
-            <button
-              type="button"
-              onClick={handleSubmit}
-              className="w-full py-2.5 px-4 border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 rounded-lg text-sm font-semibold text-slate-800 flex items-center justify-center space-x-2.5 transition-colors duration-150 shadow-xs"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"></path>
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"></path>
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"></path>
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"></path>
-              </svg>
-              <span>Google Account</span>
-            </button>
           </div>
         </section>
       </main>

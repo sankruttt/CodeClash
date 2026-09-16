@@ -1,68 +1,72 @@
-import React, { useState } from 'react';
-import { roomAPI } from '../services/api';
+import React, { useState, useEffect } from 'react';
+import { roomAPI, matchAPI } from '../services/api';
 
 export default function LobbyView({ navigate, queueing, onToggleQueue, currentUser }) {
   const [roomCodeInput, setRoomCodeInput] = useState('');
   const [isCreatingRoom, setIsCreatingRoom] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [liveDuels, setLiveDuels] = useState([]);
+  const [loadingDuels, setLoadingDuels] = useState(true);
 
-  const liveDuels = [
-    {
-      id: 'd1',
-      p1: 'Maya Chen',
-      p1Score: 640,
-      p1Avatar: 'MC',
-      p2: 'Jon Bell',
-      p2Score: 510,
-      p2Avatar: 'JB',
-      problem: 'Graph Traversal with Cycle Check',
-      tier: 'MEDIUM',
-      tierColor: 'amber',
-      time: '08:42',
-    },
-    {
-      id: 'd2',
-      p1: 'Sarah Kim',
-      p1Score: 420,
-      p1Avatar: 'SK',
-      p2: 'James Liu',
-      p2Score: 380,
-      p2Avatar: 'JL',
-      problem: 'Binary Search Rotated Array',
-      tier: 'EASY',
-      tierColor: 'emerald',
-      time: '03:15',
-    },
-    {
-      id: 'd3',
-      p1: 'Alex Chen',
-      p1Score: 210,
-      p1Avatar: 'AC',
-      p2: 'Maria Santos',
-      p2Score: 280,
-      p2Avatar: 'MS',
-      problem: 'Two Sum II - Input Array Is Sorted',
-      tier: 'MEDIUM',
-      tierColor: 'amber',
-      time: '12:47',
-    },
-  ];
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function fetchLiveDuels() {
+      setLoadingDuels(true);
+      try {
+        const res = await matchAPI.getMatches().catch(() => null);
+        const matches = res?.data?.matches || res?.data || [];
+        const active = matches.filter((m) => m.status === 'ACTIVE' || m.status === 'WAITING');
+
+        if (!isCancelled && Array.isArray(active) && active.length > 0) {
+          setLiveDuels(
+            active.map((m, idx) => ({
+              id: m._id || m.id || idx,
+              p1: m.players?.[0]?.username || m.player1?.name || 'Combatant 1',
+              p1Score: m.players?.[0]?.ratingBefore || 500,
+              p1Avatar: (m.players?.[0]?.username || m.player1?.name || 'P1').slice(0, 2).toUpperCase(),
+              p2: m.players?.[1]?.username || m.player2?.name || 'Combatant 2',
+              p2Score: m.players?.[1]?.ratingBefore || 450,
+              p2Avatar: (m.players?.[1]?.username || m.player2?.name || 'P2').slice(0, 2).toUpperCase(),
+              problem: m.problemTitle || m.problems?.[0]?.title || 'Algorithmic Duel',
+              tier: (m.difficulty || 'MEDIUM').toUpperCase(),
+              tierColor: m.difficulty === 'Hard' ? 'indigo' : m.difficulty === 'Easy' ? 'emerald' : 'amber',
+              time: 'Live',
+            }))
+          );
+        } else if (!isCancelled) {
+          setLiveDuels([]);
+        }
+      } catch (err) {
+        console.warn('Error fetching live duels:', err);
+      } finally {
+        if (!isCancelled) setLoadingDuels(false);
+      }
+    }
+
+    fetchLiveDuels();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
 
   const handleCreateRoom = async () => {
     setIsCreatingRoom(true);
     setErrorMsg('');
     try {
       const hostId = currentUser?.id || 'player_' + Math.random().toString(36).substr(2, 6);
-      const hostName = currentUser?.name || 'Kaelen';
+      const hostName = currentUser?.name || 'Combatant';
       const res = await roomAPI.createRoom(hostId, hostName);
-      if (res && res.code) {
-        navigate(`private-room`);
+      const code = res?.data?.code || res?.code;
+      if (code) {
+        sessionStorage.setItem('activeRoomCode', code);
+        navigate('private-room');
       } else {
-        navigate(`private-room`);
+        throw new Error('Room creation failed to return a code');
       }
-    } catch {
-      // Fallback directly to private room view
-      navigate('private-room');
+    } catch (err) {
+      setErrorMsg(err.message || 'Failed to create room');
     } finally {
       setIsCreatingRoom(false);
     }
@@ -70,16 +74,17 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
 
   const handleJoinRoom = async (e) => {
     e.preventDefault();
-    if (!roomCodeInput.trim()) return;
+    const cleanCode = roomCodeInput.trim().toUpperCase();
+    if (!cleanCode) return;
     setErrorMsg('');
     try {
       const playerId = currentUser?.id || 'guest_' + Math.random().toString(36).substr(2, 6);
       const playerName = currentUser?.name || 'Cadet';
-      await roomAPI.joinRoom(roomCodeInput.trim().toUpperCase(), playerId, playerName);
+      await roomAPI.joinRoom(cleanCode, playerId, playerName);
+      sessionStorage.setItem('activeRoomCode', cleanCode);
       navigate('private-room');
-    } catch {
-      // Direct navigation on demo
-      navigate('private-room');
+    } catch (err) {
+      setErrorMsg(err.message || 'Room code not found or room is full.');
     }
   };
 
@@ -98,112 +103,86 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
               <span className="text-slate-300">/</span>
             </div>
             <div className="flex items-baseline gap-3 flex-wrap">
-              <h1 className="text-3xl md:text-4xl text-slate-900 tracking-tight font-bold">
-                Combat Protocols
+              <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
+                Competitive Battle Hub
               </h1>
-              <span className="text-xs font-mono text-slate-500 font-normal">
-                Select engagement vector or scrimmage tunnel
+              <span className="font-mono text-xs px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100 font-semibold">
+                GLOBAL CLUSTER 01
               </span>
             </div>
           </div>
 
-          {/* Telemetry Pills */}
-          <div className="flex items-center gap-2 flex-wrap font-mono">
-            <div className="bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-2xs flex items-center gap-2">
-              <span className="material-symbols-outlined text-slate-400 text-[16px]">speed</span>
-              <div className="flex flex-col">
-                <span className="text-[9px] text-slate-400 uppercase tracking-wider font-semibold">Queue Avg</span>
-                <span className="text-xs text-slate-900 font-semibold">14.2s</span>
-              </div>
-            </div>
-            <div className="bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-2xs flex items-center gap-2">
-              <span className="material-symbols-outlined text-emerald-500 text-[16px]">person_check</span>
-              <div className="flex flex-col">
-                <span className="text-[9px] text-slate-400 uppercase tracking-wider font-semibold">Active Queue</span>
-                <span className="text-xs text-emerald-600 font-semibold">84 Duelists</span>
-              </div>
-            </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate('leaderboard')}
+              className="px-3.5 py-2 rounded-lg border border-slate-200 hover:border-slate-300 bg-white text-xs font-mono text-slate-700 font-semibold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+            >
+              <span className="material-symbols-outlined text-sm text-amber-500">military_tech</span>
+              <span>LADDER STANDINGS</span>
+            </button>
+            <button
+              onClick={() => navigate('history')}
+              className="px-3.5 py-2 rounded-lg border border-slate-200 hover:border-slate-300 bg-white text-xs font-mono text-slate-700 font-semibold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+            >
+              <span className="material-symbols-outlined text-sm text-slate-400">history</span>
+              <span>COMBAT LOG</span>
+            </button>
           </div>
         </div>
 
-        {/* Protocols & Live Feed Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-          {/* Left Column (7 cols): Protocol 01 and Protocol 02 */}
-          <div className="lg:col-span-7 space-y-5">
-            {/* PROTOCOL 01: 1v1 Ranked Clash */}
-            <div className="bg-white rounded-xl p-5 border-2 border-indigo-500/80 flex flex-col justify-between relative shadow-[0_4px_20px_-4px_rgba(79,70,229,0.12)] hover:border-indigo-600 transition-all">
-              <div className="flex flex-col gap-4">
-                {/* Header Bar */}
+        {/* Operational Grid: Protocols & Live Duels */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* Left Column (7 cols): Protocol Selectors */}
+          <div className="lg:col-span-7 space-y-4">
+            {/* PROTOCOL 01: Ranked Queue */}
+            <div className="bg-white rounded-xl p-5 border-2 border-indigo-500/80 shadow-sm relative overflow-hidden flex flex-col justify-between">
+              <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 font-mono">
                     <span className="text-xs text-indigo-600 font-bold">PROTOCOL_01</span>
-                    <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 text-[10px] font-semibold">
-                      PREMIER
+                    <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 text-[10px] font-semibold">
+                      OFFICIAL RANKED
                     </span>
                   </div>
-                  <div className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200 font-mono text-[11px] font-medium">
-                    <span className="material-symbols-outlined text-[13px]">verified</span>
-                    <span>LP STAKES ON</span>
-                  </div>
+                  <span className="text-xs font-mono text-emerald-600 font-bold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    MATCHMAKING ACTIVE
+                  </span>
                 </div>
 
-                {/* Title & Body */}
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900 tracking-tight">
-                    1v1 Ranked Clash
+                  <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+                    1v1 Ranked Duel (Best of 3)
                   </h2>
-                  <p className="text-sm text-slate-600 mt-1.5 leading-relaxed font-sans">
-                    Synchronous peer duel over 3 algorithmic test vectors. Highest delta test resolution or quickest clean pass takes the pool.
+                  <p className="text-sm text-slate-600 mt-1 font-sans leading-relaxed">
+                    Automated competitive matchmaking against verified adversaries of comparable LP. Full rating calibration applies upon conclusion.
                   </p>
                 </div>
 
-                {/* Milestone Pipeline */}
-                <div className="bg-slate-50 rounded-lg p-3 border border-slate-200/80 flex flex-col gap-2.5 font-mono">
-                  <div className="flex items-center justify-between text-[10px] text-slate-500 uppercase tracking-wider font-semibold">
-                    <span>Tri-Phase Matrix</span>
-                    <span className="text-slate-400">15:00 LIMIT</span>
+                <div className="grid grid-cols-3 gap-3 pt-2 font-mono text-xs">
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                    <div className="text-[10px] text-slate-400 font-medium">QUEUE TIME</div>
+                    <div className="text-sm font-bold text-slate-800 mt-0.5">~12s</div>
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-2xs flex flex-col gap-1.5">
-                      <span className="text-[10px] text-slate-400 font-medium">STAGE I</span>
-                      <span className="text-xs font-bold text-emerald-600">EASY (300)</span>
-                      <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                        <div className="bg-emerald-500 h-full w-full" />
-                      </div>
-                    </div>
-                    <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-2xs flex flex-col gap-1.5">
-                      <span className="text-[10px] text-slate-400 font-medium">STAGE II</span>
-                      <span className="text-xs font-bold text-sky-600">MED (600)</span>
-                      <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                        <div className="bg-sky-500 h-full w-2/3" />
-                      </div>
-                    </div>
-                    <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-2xs flex flex-col gap-1.5">
-                      <span className="text-[10px] text-slate-400 font-medium">STAGE III</span>
-                      <span className="text-xs font-bold text-indigo-600">HARD (1100)</span>
-                      <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                        <div className="bg-indigo-600 h-full w-1/3" />
-                      </div>
-                    </div>
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                    <div className="text-[10px] text-slate-400 font-medium">PAIRING TOLERANCE</div>
+                    <div className="text-sm font-bold text-indigo-600 mt-0.5">±120 LP</div>
                   </div>
-
-                  <div className="pt-1 flex items-center justify-between text-slate-500 text-[11px]">
-                    <div className="flex items-center gap-1.5 text-slate-500">
-                      <span className="material-symbols-outlined text-[14px]">sync_alt</span>
-                      <span>Live Keystroke &amp; AST Diff</span>
-                    </div>
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                    <div className="text-[10px] text-slate-400 font-medium">STAKE</div>
+                    <div className="text-sm font-bold text-emerald-600 mt-0.5">+24 / -18 LP</div>
                   </div>
                 </div>
               </div>
 
-              {/* Action Button */}
               <div className="pt-5">
                 <button
                   onClick={onToggleQueue}
-                  className={`w-full py-3 px-4 rounded-lg font-mono text-xs font-bold tracking-wider uppercase flex items-center justify-center gap-2 border shadow-sm transition-all duration-150 ${queueing
-                      ? 'bg-rose-600 hover:bg-rose-700 text-white border-rose-700 shadow-rose-600/20'
+                  className={`w-full py-3 px-4 rounded-lg font-mono text-xs font-bold tracking-wider uppercase flex items-center justify-center gap-2 border shadow-sm transition-all duration-150 cursor-pointer ${
+                    queueing
+                      ? 'bg-rose-600 hover:bg-rose-700 text-white border-rose-700 shadow-rose-600/20 animate-pulse'
                       : 'bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white border-indigo-700 shadow-indigo-600/20'
-                    }`}
+                  }`}
                 >
                   <span className="material-symbols-outlined text-base">
                     {queueing ? 'hourglass_top' : 'swords'}
@@ -240,8 +219,9 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
                 </div>
 
                 {errorMsg && (
-                  <div className="p-2 rounded bg-rose-50 border border-rose-200 text-rose-700 text-xs font-mono">
-                    {errorMsg}
+                  <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-mono flex items-center gap-2">
+                    <span className="material-symbols-outlined text-sm shrink-0">error</span>
+                    <span>{errorMsg}</span>
                   </div>
                 )}
 
@@ -249,7 +229,7 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
                   <button
                     onClick={handleCreateRoom}
                     disabled={isCreatingRoom}
-                    className="p-3 rounded-lg border border-slate-200 hover:border-indigo-500 bg-slate-50 hover:bg-white text-slate-800 font-mono text-xs font-semibold flex flex-col gap-1 text-left transition-all group"
+                    className="p-3 rounded-lg border border-slate-200 hover:border-indigo-500 bg-slate-50 hover:bg-white text-slate-800 font-mono text-xs font-semibold flex flex-col gap-1 text-left transition-all group cursor-pointer"
                   >
                     <div className="flex items-center justify-between text-indigo-600">
                       <span className="material-symbols-outlined text-lg">add_circle</span>
@@ -273,7 +253,7 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
                     </div>
                     <button
                       type="submit"
-                      className="py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-mono text-xs font-semibold tracking-wider transition-colors"
+                      className="py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-mono text-xs font-semibold tracking-wider transition-colors cursor-pointer"
                     >
                       JOIN ROOM KEY
                     </button>
@@ -293,42 +273,51 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
                     Live Arena Streams
                   </h2>
                 </div>
-                <span className="text-xs font-mono text-slate-400">3 Duels Live</span>
+                <span className="text-xs font-mono text-slate-400">
+                  {liveDuels.length} {liveDuels.length === 1 ? 'Duel Live' : 'Duels Live'}
+                </span>
               </div>
 
               <div className="space-y-3 font-mono">
-                {liveDuels.map((duel) => (
-                  <div
-                    key={duel.id}
-                    className="p-3 rounded-lg bg-slate-50 border border-slate-200/80 hover:border-indigo-300 transition-all shadow-2xs space-y-2.5"
-                  >
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-                        <span className="font-semibold text-slate-900 font-sans">{duel.p1}</span>
-                        <span className="text-slate-400 text-[11px]">({duel.p1Score})</span>
-                        <span className="text-indigo-600 font-bold">vs</span>
-                        <span className="font-semibold text-slate-900 font-sans">{duel.p2}</span>
-                        <span className="text-slate-400 text-[11px]">({duel.p2Score})</span>
+                {liveDuels.length > 0 ? (
+                  liveDuels.map((duel) => (
+                    <div
+                      key={duel.id}
+                      className="p-3 rounded-lg bg-slate-50 border border-slate-200/80 hover:border-indigo-300 transition-all shadow-2xs space-y-2.5"
+                    >
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                          <span className="font-semibold text-slate-900 font-sans">{duel.p1}</span>
+                          <span className="text-slate-400 text-[11px]">({duel.p1Score})</span>
+                          <span className="text-indigo-600 font-bold">vs</span>
+                          <span className="font-semibold text-slate-900 font-sans">{duel.p2}</span>
+                          <span className="text-slate-400 text-[11px]">({duel.p2Score})</span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-medium">{duel.time}</span>
                       </div>
-                      <span className="text-[10px] text-slate-400 font-medium">{duel.time}</span>
-                    </div>
 
-                    <div className="flex items-center justify-between text-[11px] font-sans">
-                      <div className="flex items-center gap-1.5 truncate">
-                        <span className="text-slate-700 truncate">{duel.problem}</span>
-                        <span
-                          className={`text-[9px] font-mono px-1 py-0.2 rounded font-semibold border ${duel.tierColor === 'amber'
-                              ? 'bg-amber-50 text-amber-700 border-amber-200'
-                              : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      <div className="flex items-center justify-between text-[11px] font-sans">
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="text-slate-700 truncate">{duel.problem}</span>
+                          <span
+                            className={`text-[9px] font-mono px-1 py-0.2 rounded font-semibold border ${
+                              duel.tierColor === 'amber'
+                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                : 'bg-emerald-50 text-emerald-700 border-emerald-200'
                             }`}
-                        >
-                          {duel.tier}
-                        </span>
+                          >
+                            {duel.tier}
+                          </span>
+                        </div>
                       </div>
                     </div>
+                  ))
+                ) : (
+                  <div className="p-6 text-center text-xs font-mono text-slate-400">
+                    {loadingDuels ? 'Scanning active arena streams...' : 'No combat duels currently active. Be the first to duel!'}
                   </div>
-                ))}
+                )}
               </div>
             </div>
 

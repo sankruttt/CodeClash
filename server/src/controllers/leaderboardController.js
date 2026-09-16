@@ -16,6 +16,14 @@ export const getLeaderboard = asyncHandler(async (req, res) => {
 export const getUserRankController = asyncHandler(async (req, res) => {
   const { userId } = req.params;
   
+  if (!userId || userId.startsWith('user_')) {
+    return res.status(404).json({
+      success: false,
+      error: 'USER_NOT_FOUND',
+      message: 'User has no ranking yet'
+    });
+  }
+
   const rank = await getUserRank(userId);
   
   if (rank === null) {

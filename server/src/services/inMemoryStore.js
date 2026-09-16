@@ -107,6 +107,9 @@ class InMemoryStore {
       draws: 0,
       streak: 0,
       bestStreak: 0,
+      longestStreak: 0,
+      lastActivityDate: null,
+      activityHistory: [],
       lastLogin: new Date(),
       createdAt: new Date()
     };
@@ -197,7 +200,7 @@ class InMemoryStore {
     const user = this.users.get(id);
     if (!user) return null;
     // Allowlist: only update safe fields, never allow id/password overwrite
-    const allowedFields = ['color', 'rating', 'rank', 'wins', 'losses', 'draws', 'streak', 'bestStreak', 'avatar', 'lastLogin'];
+    const allowedFields = ['color', 'rating', 'rank', 'wins', 'losses', 'draws', 'streak', 'bestStreak', 'longestStreak', 'lastActivityDate', 'activityHistory', 'avatar', 'lastLogin'];
     for (const key of allowedFields) {
       if (updates[key] !== undefined) {
         user[key] = updates[key];
@@ -545,7 +548,7 @@ class InMemoryStore {
     return true;
   }
 
-  startRoom(code) {
+  startRoom(code, requesterId = null) {
     const room = this.getRoom(code);
     if (!room) {
       const err = new Error('Room not found');
@@ -554,8 +557,20 @@ class InMemoryStore {
       throw err;
     }
 
-    if (room.status !== 'ready') {
-      const err = new Error('Room is not ready. Both players must join first.');
+    if (requesterId && room.hostId && String(room.hostId) !== String(requesterId)) {
+      const err = new Error('Only the room owner can start the match');
+      err.statusCode = 403;
+      err.code = 'NOT_ROOM_OWNER';
+      throw err;
+    }
+
+    // Idempotent start: return current started room if already active
+    if (room.status === 'in_progress') {
+      return room;
+    }
+
+    if (room.status !== 'ready' || !room.guestId) {
+      const err = new Error('Cannot start match before all required players have joined');
       err.statusCode = 400;
       err.code = 'ROOM_NOT_READY';
       throw err;

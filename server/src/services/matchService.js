@@ -37,16 +37,16 @@ export async function createPrivateMatch(hostId, type = 'private') {
       roomCode = generateRoomCode();
       attempts++;
     } while (await Match.findOne({ roomCode }) && attempts < maxAttempts);
-    
+
     if (attempts >= maxAttempts) {
       const err = new Error('Failed to generate unique room code');
       err.statusCode = 500;
       err.code = 'ROOM_CODE_GENERATION_FAILED';
       throw err;
     }
-    
+
     const problems = await getRandomProblems(3);
-    
+
     const match = new Match({
       roomCode,
       type,
@@ -55,7 +55,7 @@ export async function createPrivateMatch(hostId, type = 'private') {
       players: [await buildPlayerEntry(hostId)],
       problems
     });
-    
+
     await match.save();
     return match;
   } else {
@@ -73,21 +73,21 @@ export async function createPrivateMatch(hostId, type = 'private') {
 export async function joinMatch(roomCode, userId) {
   if (isMongoConnected()) {
     const match = await Match.findOne({ roomCode: roomCode.toUpperCase() });
-    
+
     if (!match) {
       const err = new Error('Match not found');
       err.statusCode = 404;
       err.code = 'MATCH_NOT_FOUND';
       throw err;
     }
-    
+
     if (match.status !== 'WAITING') {
       const err = new Error('Match is no longer accepting players');
       err.statusCode = 409;
       err.code = 'MATCH_UNAVAILABLE';
       throw err;
     }
-    
+
     // Check if already in match
     if (match.players.some(p => p.userId.toString() === userId)) {
       const err = new Error('Already in this match');
@@ -95,53 +95,53 @@ export async function joinMatch(roomCode, userId) {
       err.code = 'ALREADY_IN_MATCH';
       throw err;
     }
-    
+
     if (match.players.length >= 2) {
       const err = new Error('Match is full');
       err.statusCode = 409;
       err.code = 'MATCH_FULL';
       throw err;
     }
-    
+
     match.players.push(await buildPlayerEntry(userId));
     match.status = 'MATCHED';
-    
+
     await match.save();
     return match;
   } else {
     const match = inMemoryStore.getMatchByRoomCode(roomCode);
-    
+
     if (!match) {
       const err = new Error('Match not found');
       err.statusCode = 404;
       err.code = 'MATCH_NOT_FOUND';
       throw err;
     }
-    
+
     if (match.status !== 'WAITING') {
       const err = new Error('Match is no longer accepting players');
       err.statusCode = 409;
       err.code = 'MATCH_UNAVAILABLE';
       throw err;
     }
-    
+
     if (match.players.some(p => p.userId === userId)) {
       const err = new Error('Already in this match');
       err.statusCode = 409;
       err.code = 'ALREADY_IN_MATCH';
       throw err;
     }
-    
+
     if (match.players.length >= 2) {
       const err = new Error('Match is full');
       err.statusCode = 409;
       err.code = 'MATCH_FULL';
       throw err;
     }
-    
+
     match.players.push(await buildPlayerEntry(userId));
     match.status = 'MATCHED';
-    
+
     return match;
   }
 }
@@ -149,54 +149,54 @@ export async function joinMatch(roomCode, userId) {
 export async function startMatch(matchId, userId) {
   if (isMongoConnected()) {
     const match = await Match.findById(matchId);
-    
+
     if (!match) {
       const err = new Error('Match not found');
       err.statusCode = 404;
       throw err;
     }
-    
+
     if (match.status !== 'MATCHED') {
       const err = new Error('Match is not ready to start');
       err.statusCode = 400;
       throw err;
     }
-    
+
     if (match.players.length < 2) {
       const err = new Error('Cannot start match with less than 2 players');
       err.statusCode = 400;
       throw err;
     }
-    
+
     match.status = 'ACTIVE';
     match.startedAt = new Date();
-    
+
     await match.save();
     return match;
   } else {
     const match = inMemoryStore.getMatch(matchId);
-    
+
     if (!match) {
       const err = new Error('Match not found');
       err.statusCode = 404;
       throw err;
     }
-    
+
     if (match.status !== 'MATCHED') {
       const err = new Error('Match is not ready to start');
       err.statusCode = 400;
       throw err;
     }
-    
+
     if (match.players.length < 2) {
       const err = new Error('Cannot start match with less than 2 players');
       err.statusCode = 400;
       throw err;
     }
-    
+
     match.status = 'ACTIVE';
     match.startedAt = new Date();
-    
+
     return match;
   }
 }
@@ -224,12 +224,12 @@ export async function completeMatch(matchId) {
     err.statusCode = 404;
     throw err;
   }
-  
+
   if (match.status === 'COMPLETED') return match;
-  
+
   // Calculate winner based on problems solved (then time)
   const [player1, player2] = match.players;
-  
+
   if (!player1 || !player2) {
     const err = new Error('Match must have 2 players to complete');
     err.statusCode = 400;
@@ -240,10 +240,10 @@ export async function completeMatch(matchId) {
   player2.problemsSolved = player2.problemsSolved || 0;
   player1.totalTime = player1.totalTime || 0;
   player2.totalTime = player2.totalTime || 0;
-  
+
   let winner = null;
   let result = 'draw';
-  
+
   if (player1.problemsSolved > player2.problemsSolved) {
     winner = player1.userId;
     result = 'player1';
@@ -257,32 +257,32 @@ export async function completeMatch(matchId) {
     winner = player2.userId;
     result = 'player2';
   }
-  
+
   // Calculate rating changes
   const rating1Before = player1.ratingBefore || 1500;
   const rating2Before = player2.ratingBefore || 1500;
-  
+
   const rating1Change = calculateRatingChange(rating1Before, rating2Before, result === 'player1' ? 1 : result === 'player2' ? 0 : 0.5);
   const rating2Change = calculateRatingChange(rating2Before, rating1Before, result === 'player2' ? 1 : result === 'player1' ? 0 : 0.5);
-  
+
   player1.ratingAfter = rating1Before + rating1Change;
   player2.ratingAfter = rating2Before + rating2Change;
   player1.ratingChange = rating1Change;
   player2.ratingChange = rating2Change;
   player1.status = 'FINISHED';
   player2.status = 'FINISHED';
-  
+
   match.status = 'COMPLETED';
   match.winner = winner;
   match.result = result;
   match.completedAt = new Date();
-  match.duration = match.startedAt ? 
+  match.duration = match.startedAt ?
     Math.floor((match.completedAt - match.startedAt) / 1000) : 0;
-  
+
   if (isMongoConnected()) {
     await match.save();
   }
-  
+
   return match;
 }
 

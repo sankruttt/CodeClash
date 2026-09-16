@@ -1,10 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { getTierDetails } from '../utils/tierUtils';
+import { leaderboardAPI, problemAPI } from '../services/api';
+import StreakCard from '../components/StreakCard';
 
-export default function DashboardView({ navigate, queueing, setQueueing, currentUser }) {
-  const rating = currentUser?.rating || 2148;
+export default function DashboardView({ navigate, queueing, setQueueing, onToggleQueue, currentUser }) {
+  const rating = currentUser?.rating || 1500;
   const tierInfo = getTierDetails(rating, currentUser?.tier);
   const [queueSeconds, setQueueSeconds] = useState(0);
+
+  const [matches, setMatches] = useState([]);
+  const [topPlayers, setTopPlayers] = useState([]);
+  const [userRank, setUserRank] = useState(null);
+  const [bountyProblem, setBountyProblem] = useState(null);
+  const [loadingData, setLoadingData] = useState(true);
 
   useEffect(() => {
     if (!queueing) return;
@@ -15,7 +23,9 @@ export default function DashboardView({ navigate, queueing, setQueueing, current
   }, [queueing]);
 
   const toggleQueue = () => {
-    if (!queueing) {
+    if (onToggleQueue) {
+      onToggleQueue();
+    } else if (!queueing) {
       setQueueSeconds(0);
       setQueueing(true);
     } else {
@@ -24,60 +34,87 @@ export default function DashboardView({ navigate, queueing, setQueueing, current
     }
   };
 
-  const matches = [
-    {
-      id: 1,
-      opponent: 'v0_Sniper',
-      tier: 'Diamond I',
-      avatar: 'VS',
-      problem: 'LRU Cache with TTL',
-      diff: 'MED',
-      diffColor: 'amber',
-      result: 'VICTORY',
-      lp: '+24 LP',
-      time: '04:12',
-      date: '12m ago',
-    },
-    {
-      id: 2,
-      opponent: 'NeuralByte',
-      tier: 'Master',
-      avatar: 'NB',
-      problem: 'Graph Minimum Spanning Tree',
-      diff: 'HARD',
-      diffColor: 'indigo',
-      result: 'DEFEAT',
-      lp: '-18 LP',
-      time: '09:45',
-      date: '1h ago',
-    },
-    {
-      id: 3,
-      opponent: 'SyntaxGod',
-      tier: 'Diamond',
-      avatar: 'SG',
-      problem: 'Binary Search Rotated Array',
-      diff: 'EASY',
-      diffColor: 'emerald',
-      result: 'VICTORY',
-      lp: '+28 LP',
-      time: '03:02',
-      date: '3h ago',
-    },
-    {
-      id: 4,
-      opponent: 'GhostCoder',
-      tier: 'Diamond III',
-      avatar: 'GC',
-      problem: 'Merge K-Sorted Lists',
-      diff: 'MED',
-      diffColor: 'amber',
-      result: 'VICTORY',
-      lp: '+19 LP',
-      time: '06:14',
-      date: 'Yesterday',
-    },
-  ];
+  // Fetch real matches, leaderboard snippet, user rank, and bounty from MongoDB
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function loadDashboardData() {
+      setLoadingData(true);
+      try {
+        // 1. Fetch user match history
+        const historyRes = await leaderboardAPI.getMatchHistory(5).catch(() => null);
+        const rawHistory = historyRes?.data?.history || historyRes?.data || [];
+
+        // 2. Fetch top 3 leaderboard entries
+        const lbRes = await leaderboardAPI.getLeaderboard({ limit: 3 }).catch(() => null);
+        const lbList = lbRes?.data?.leaderboard || lbRes?.data || [];
+
+        // 3. Fetch user rank if authenticated
+        let rankVal = null;
+        if (currentUser?.id) {
+          const rankRes = await leaderboardAPI.getUserRank(currentUser.id).catch(() => null);
+          rankVal = rankRes?.data?.rank || rankRes?.data || null;
+        }
+
+        // 4. Fetch random coding problem for Algorithmic Bounty
+        const probRes = await problemAPI.getRandomProblems(1).catch(() => null);
+        const prob = probRes?.data?.problems?.[0] || probRes?.data?.[0] || null;
+
+        if (!isCancelled) {
+          if (Array.isArray(rawHistory) && rawHistory.length > 0) {
+            setMatches(
+              rawHistory.map((h, idx) => {
+                const diff = h.difficulty || 'MED';
+                const diffColor =
+                  diff.toUpperCase() === 'HARD' ? 'indigo' : diff.toUpperCase() === 'EASY' ? 'emerald' : 'amber';
+                const isWin = h.result === 'WIN' || h.result === 'VICTORY';
+                const delta = h.ratingChange ?? (isWin ? 24 : -18);
+                const lpStr = (delta >= 0 ? `+${delta}` : `${delta}`) + ' LP';
+
+                return {
+                  id: h._id || h.id || idx,
+                  opponent: h.opponentName || 'Adversary',
+                  tier: h.opponentTier || 'Diamond',
+                  avatar: (h.opponentName || 'AD').slice(0, 2).toUpperCase(),
+                  problem: h.problemTitle || 'Algorithmic Duel',
+                  diff: diff.toUpperCase().slice(0, 4),
+                  diffColor,
+                  result: isWin ? 'VICTORY' : 'DEFEAT',
+                  lp: lpStr,
+                  time: h.duration ? `${Math.floor(h.duration / 60)}:${(h.duration % 60).toString().padStart(2, '0')}` : '04:12',
+                  date: h.createdAt ? new Date(h.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recent',
+                };
+              })
+            );
+          } else {
+            setMatches([]);
+          }
+
+          if (Array.isArray(lbList)) {
+            setTopPlayers(lbList.slice(0, 3));
+          }
+
+          if (rankVal) {
+            setUserRank(rankVal);
+          }
+
+          if (prob) {
+            setBountyProblem(prob);
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching dashboard data:', err);
+      } finally {
+        if (!isCancelled) setLoadingData(false);
+      }
+    }
+
+    loadDashboardData();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentUser?.id]);
 
   return (
     <div className="flex-1 min-w-0 px-4 pt-4 sm:px-6 sm:pt-6 pb-48 subtle-grid">
@@ -93,130 +130,86 @@ export default function DashboardView({ navigate, queueing, setQueueing, current
                 </span>
               </div>
               <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
-                WELCOME BACK, <span className="text-indigo-600 font-mono">{currentUser?.name?.toUpperCase() || 'KAELEN'}</span>
+                WELCOME BACK, <span className="text-indigo-600 font-mono">{currentUser?.name?.toUpperCase() || 'COMBATANT'}</span>
               </h1>
 
               {/* Progress to Next Tier */}
               <div className="pt-2 max-w-md">
-                <div className="flex flex-wrap items-center justify-between text-[11px] font-mono mb-1.5 gap-2">
-                  <span className="text-slate-600">
-                    Tier Path: <strong className="text-sky-600 font-semibold">{tierInfo.currentTier}</strong> →{' '}
-                    <strong className="text-indigo-600 font-semibold">{tierInfo.nextTier}</strong>
+                <div className="flex justify-between text-xs font-mono text-slate-500 mb-1.5">
+                  <span className="font-semibold text-slate-700">
+                    TIER PROGRESSION ({tierInfo.currentTier} → {tierInfo.nextTier})
                   </span>
-                  <span className="text-slate-500 font-medium whitespace-nowrap">
-                    {rating.toLocaleString()} / {tierInfo.nextTierLP.toLocaleString()} LP ({tierInfo.pct}%)
-                  </span>
+                  <span className="text-indigo-600 font-bold">{tierInfo.pct}%</span>
                 </div>
-                <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden border border-slate-200">
+                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden border border-slate-200/60">
                   <div
-                    className="h-full bg-gradient-to-r from-sky-500 via-indigo-600 to-indigo-700 rounded-full"
+                    className="bg-gradient-to-r from-sky-500 via-indigo-500 to-indigo-600 h-full rounded-full transition-all duration-500 shadow-2xs"
                     style={{ width: `${tierInfo.pct}%` }}
                   />
+                </div>
+                <div className="flex justify-between items-center mt-1 text-[11px] font-mono text-slate-400">
+                  <span>{rating.toLocaleString()} LP</span>
+                  <span>{tierInfo.nextTierLP.toLocaleString()} LP</span>
                 </div>
               </div>
             </div>
 
-            {/* Right CTA Action Box */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 self-stretch lg:self-center">
+            {/* Right Action Block (Ranked Queue) */}
+            <div className="flex flex-col sm:flex-row lg:flex-col items-stretch sm:items-center lg:items-end gap-3 w-full lg:w-auto">
+              <div className="flex items-center gap-4 bg-slate-50 border border-slate-200/80 px-4 py-2.5 rounded-xl font-mono text-xs shadow-2xs">
+                <div>
+                  <div className="text-[10px] text-slate-400 uppercase font-medium">LADDER RATING</div>
+                  <div className="text-lg font-bold text-slate-900 leading-tight">
+                    {rating.toLocaleString()} <span className="text-xs text-indigo-600 font-normal">LP</span>
+                  </div>
+                </div>
+                <div className="h-7 w-[1px] bg-slate-200" />
+                <div>
+                  <div className="text-[10px] text-slate-400 uppercase font-medium">TIER STATUS</div>
+                  <div className="text-sm font-bold text-indigo-600 leading-tight">{tierInfo.currentTier}</div>
+                </div>
+                <div className="h-7 w-[1px] bg-slate-200" />
+                <div>
+                  <div className="text-[10px] text-slate-400 uppercase font-medium">WIN RATIO</div>
+                  <div className="text-sm font-bold text-emerald-600 leading-tight">
+                    {currentUser?.wins || currentUser?.losses
+                      ? `${Math.round(((currentUser.wins || 0) / ((currentUser.wins || 0) + (currentUser.losses || 0) || 1)) * 100)}%`
+                      : '0%'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Main Queue CTA */}
               <button
                 onClick={toggleQueue}
-                className={`px-5 py-3.5 rounded-lg font-mono text-xs font-bold tracking-wider flex items-center justify-center gap-2 border shadow-sm transition-all duration-200 active:scale-[0.98] ${
-                  queueing
-                    ? 'bg-rose-600 hover:bg-rose-700 text-white border-rose-700 shadow-rose-600/20'
-                    : 'bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-700 shadow-indigo-600/20'
-                }`}
+                className={`w-full sm:w-auto px-6 py-3 rounded-xl font-mono text-xs font-bold tracking-wider uppercase transition-all duration-150 flex items-center justify-center gap-2 shadow-xs cursor-pointer ${queueing
+                  ? 'bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 hover:border-rose-300 animate-pulse'
+                  : 'bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white shadow-indigo-500/20'
+                  }`}
               >
-                <span className="material-symbols-outlined text-base">
-                  {queueing ? 'hourglass_top' : 'swords'}
-                </span>
-                <span>
-                  {queueing
-                    ? `SEARCHING MATCH (${queueSeconds}s)... [CANCEL]`
-                    : 'ENTER QUEUE (1v1 RANKED)'}
-                </span>
-              </button>
-
-              <button
-                onClick={() => navigate('private-room')}
-                className="px-4 py-3.5 rounded-lg font-mono text-xs font-semibold tracking-wider flex items-center justify-center gap-2 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs transition-colors"
-                title="Create or Join Private Scrimmage"
-              >
-                <span className="material-symbols-outlined text-base text-indigo-600">meeting_room</span>
-                <span>PRIVATE ROOM</span>
+                {queueing ? (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+                    <span>SEARCHING MATCH ({queueSeconds}s) • CANCEL</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-sm">swords</span>
+                    <span>ENTER 1v1 RANKED QUEUE</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
         </section>
 
-        {/* 4 Metric KPI Tiles */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-          {/* KPI 1 */}
-          <div className="p-4 rounded-xl border border-slate-200/80 bg-white flex flex-col justify-between shadow-xs hover:border-slate-300 transition-colors">
-            <div className="flex items-center justify-between text-slate-500 text-[11px] font-mono">
-              <span className="uppercase tracking-wider font-medium">Win Rate</span>
-              <span className="material-symbols-outlined text-sm text-emerald-600">trending_up</span>
-            </div>
-            <div className="my-2 flex items-baseline justify-between">
-              <div className="text-2xl font-bold font-mono tracking-tight text-slate-900">68.4%</div>
-              <span className="text-xs font-mono text-emerald-600 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                +3.1%
-              </span>
-            </div>
-            <div className="text-[11px] font-mono text-slate-500">142W - 66L across 208 duels</div>
-          </div>
-
-          {/* KPI 2 */}
-          <div className="p-4 rounded-xl border border-slate-200/80 bg-white flex flex-col justify-between shadow-xs hover:border-slate-300 transition-colors">
-            <div className="flex items-center justify-between text-slate-500 text-[11px] font-mono">
-              <span className="uppercase tracking-wider font-medium">Global Rank</span>
-              <span className="material-symbols-outlined text-sm text-sky-600">public</span>
-            </div>
-            <div className="my-2 flex items-baseline justify-between">
-              <div className="text-2xl font-bold font-mono tracking-tight text-slate-900">#142</div>
-              <span className="text-xs font-mono text-sky-600 font-semibold bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200">
-                Top 0.8%
-              </span>
-            </div>
-            <div className="text-[11px] font-mono text-slate-500">Active Pool: 42,910 Combatants</div>
-          </div>
-
-          {/* KPI 3 */}
-          <div className="p-4 rounded-xl border border-slate-200/80 bg-white flex flex-col justify-between shadow-xs hover:border-slate-300 transition-colors">
-            <div className="flex items-center justify-between text-slate-500 text-[11px] font-mono">
-              <span className="uppercase tracking-wider font-medium">Rating LP</span>
-              <span className="material-symbols-outlined text-sm text-indigo-600">workspace_premium</span>
-            </div>
-            <div className="my-2 flex items-baseline justify-between">
-              <div className="text-2xl font-bold font-mono tracking-tight text-slate-900">{rating.toLocaleString()} LP</div>
-              <span className="text-xs font-mono text-indigo-600 font-semibold bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
-                Peak 2,210
-              </span>
-            </div>
-            <div className="text-[11px] font-mono text-slate-500">{tierInfo.lpNeeded} LP to {tierInfo.nextTier}</div>
-          </div>
-
-          {/* KPI 4 */}
-          <div className="p-4 rounded-xl border border-slate-200/80 bg-white flex flex-col justify-between shadow-xs hover:border-slate-300 transition-colors">
-            <div className="flex items-center justify-between text-slate-500 text-[11px] font-mono">
-              <span className="uppercase tracking-wider font-medium">Momentum</span>
-              <span className="material-symbols-outlined text-sm text-amber-500">local_fire_department</span>
-            </div>
-            <div className="my-2 flex items-baseline justify-between">
-              <div className="text-2xl font-bold font-mono tracking-tight text-amber-600">7 STREAK</div>
-              <span className="text-xs font-mono text-amber-700 font-semibold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                Hot
-              </span>
-            </div>
-            <div className="text-[11px] font-mono text-slate-500">x1.5 LP Boost Multiplier Active</div>
-          </div>
-        </section>
-
-        {/* Main 2-Column Operational Grid */}
+        {/* 2-Column Operational Grid */}
         <section className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-          {/* Left Column (8 Cols): Recent Combat Engagements */}
+          {/* Left Column (8 Cols): Recent Skirmishes & Challenge Vector */}
           <div className="lg:col-span-8 space-y-4">
-            <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-xs">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+            {/* Recent Match Feed */}
+            <div className="rounded-xl border border-slate-200/80 bg-white p-5 space-y-3.5 shadow-xs">
+              <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
                 <div className="flex items-center gap-2">
                   <span className="material-symbols-outlined text-base text-indigo-600">history</span>
                   <h2 className="text-sm font-semibold tracking-tight text-slate-900">
@@ -225,17 +218,17 @@ export default function DashboardView({ navigate, queueing, setQueueing, current
                 </div>
                 <button
                   onClick={() => navigate('history')}
-                  className="text-xs font-mono text-indigo-600 hover:text-indigo-800 transition-colors font-medium flex items-center gap-1"
+                  className="text-xs font-mono text-slate-400 hover:text-indigo-600 transition-colors font-medium cursor-pointer"
                 >
-                  <span>Full Ledger</span>
-                  <span>↗</span>
+                  View All Log
                 </button>
               </div>
 
+              {/* Matches Table */}
               <div className="overflow-x-auto">
                 <table className="w-full text-left font-mono text-xs">
                   <thead>
-                    <tr className="text-slate-400 border-b border-slate-100 text-[11px] uppercase">
+                    <tr className="text-slate-400 border-b border-slate-100 text-[10px] uppercase">
                       <th className="pb-2.5 font-medium">Adversary</th>
                       <th className="pb-2.5 font-medium">Problem Vector</th>
                       <th className="pb-2.5 font-medium">Result</th>
@@ -244,66 +237,71 @@ export default function DashboardView({ navigate, queueing, setQueueing, current
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {matches.map((m) => (
-                      <tr key={m.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-3 pr-2">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-full bg-slate-100 border border-slate-200 text-slate-700 font-mono font-bold flex items-center justify-center text-[10px]">
-                              {m.avatar}
+                    {matches.length > 0 ? (
+                      matches.map((m) => (
+                        <tr key={m.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-3 pr-2">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-7 h-7 rounded-full bg-slate-100 border border-slate-200 text-slate-700 font-mono font-bold flex items-center justify-center text-[10px]">
+                                {m.avatar}
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="font-semibold text-slate-900 font-sans">{m.opponent}</span>
+                                <span className="text-[10px] text-slate-400">{m.tier}</span>
+                              </div>
                             </div>
-                            <div className="flex flex-col">
-                              <span className="font-semibold text-slate-900 font-sans">{m.opponent}</span>
-                              <span className="text-[10px] text-slate-400">{m.tier}</span>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-3 pr-2 font-sans">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-slate-800 text-xs font-medium">{m.problem}</span>
-                            <span
-                              className={`text-[9px] font-mono px-1 py-0.2 rounded font-semibold border ${
-                                m.diffColor === 'amber'
+                          </td>
+                          <td className="py-3 pr-2 font-sans">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-slate-800 text-xs font-medium">{m.problem}</span>
+                              <span
+                                className={`text-[9px] font-mono px-1 py-0.2 rounded font-semibold border ${m.diffColor === 'amber'
                                   ? 'bg-amber-50 text-amber-700 border-amber-200'
                                   : m.diffColor === 'indigo'
-                                  ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              }`}
-                            >
-                              {m.diff}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="py-3 pr-2">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
-                              m.result === 'VICTORY'
+                                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  }`}
+                              >
+                                {m.diff}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="py-3 pr-2">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${m.result === 'VICTORY'
                                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                 : 'bg-rose-50 text-rose-700 border-rose-200'
-                            }`}
-                          >
-                            {m.result}
-                          </span>
-                        </td>
-                        <td className="py-3 pr-2">
-                          <span
-                            className={`font-semibold ${
-                              m.lp.startsWith('+') ? 'text-emerald-600' : 'text-rose-600'
-                            }`}
-                          >
-                            {m.lp}
-                          </span>
-                        </td>
-                        <td className="py-3 text-right text-slate-500 font-medium">
-                          {m.time}
+                                }`}
+                            >
+                              {m.result}
+                            </span>
+                          </td>
+                          <td className="py-3 pr-2">
+                            <span
+                              className={`font-semibold ${m.lp.startsWith('+') ? 'text-emerald-600' : 'text-rose-600'
+                                }`}
+                            >
+                              {m.lp}
+                            </span>
+                          </td>
+                          <td className="py-3 text-right text-slate-500 font-medium">
+                            {m.time}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-xs font-mono text-slate-400">
+                          {loadingData ? 'Calibrating match history telemetry...' : 'No skirmishes logged yet. Enter the queue or private room to duel!'}
                         </td>
                       </tr>
-                    ))}
+                    )}
                   </tbody>
                 </table>
               </div>
             </div>
 
-            {/* Quick Challenge Grid */}
+            {/* Quick Challenge Grid / Bounty */}
             <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-xs">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
@@ -319,15 +317,17 @@ export default function DashboardView({ navigate, queueing, setQueueing, current
               <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div>
                   <div className="font-semibold text-slate-900 text-sm font-sans">
-                    Sliding Window Maximum (O(n) Monotonic Queue)
+                    {bountyProblem?.title || 'Two Sum & Monotonic Search'}
                   </div>
                   <div className="text-xs text-slate-500 mt-0.5 font-sans">
-                    Solve within 10 minutes with less than 2 submissions to claim the daily bonus.
+                    {bountyProblem?.description
+                      ? (bountyProblem.description.slice(0, 110) + '...')
+                      : 'Solve within 10 minutes with less than 2 submissions to claim the daily bonus.'}
                   </div>
                 </div>
                 <button
                   onClick={toggleQueue}
-                  className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-mono text-xs font-semibold tracking-wider transition-colors shrink-0"
+                  className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-mono text-xs font-semibold tracking-wider transition-colors shrink-0 cursor-pointer"
                 >
                   {queueing ? 'QUEUE ACTIVE...' : 'QUEUE FOR BOUNTY'}
                 </button>
@@ -335,8 +335,11 @@ export default function DashboardView({ navigate, queueing, setQueueing, current
             </div>
           </div>
 
-          {/* Right Column (4 Cols): Leaderboard Snippet & System Status */}
+          {/* Right Column (4 Cols): Streak Tracker & Leaderboard Snippet */}
           <div className="lg:col-span-4 space-y-4">
+            {/* User Daily Combat Streak Component */}
+            <StreakCard currentUser={currentUser} />
+
             {/* Leaderboard Snippet */}
             <div className="rounded-xl border border-slate-200/80 bg-white p-5 space-y-3.5 shadow-xs">
               <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
@@ -348,7 +351,7 @@ export default function DashboardView({ navigate, queueing, setQueueing, current
                 </div>
                 <button
                   onClick={() => navigate('leaderboard')}
-                  className="text-xs font-mono text-slate-400 hover:text-indigo-600 transition-colors font-medium"
+                  className="text-xs font-mono text-slate-400 hover:text-indigo-600 transition-colors font-medium cursor-pointer"
                 >
                   Full Ladder
                 </button>
@@ -356,74 +359,63 @@ export default function DashboardView({ navigate, queueing, setQueueing, current
 
               {/* Leaderboard entries */}
               <div className="space-y-2 font-mono text-xs">
-                {/* Rank 1 */}
-                <div className="px-3.5 py-2.5 rounded-lg bg-slate-50 border border-slate-200/80 flex items-center justify-between shadow-2xs hover:bg-slate-100/50 transition-colors">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="text-amber-600 font-bold text-xs w-6 shrink-0">#1</span>
-                    <div className="w-6 h-6 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold flex items-center justify-center shrink-0">
-                      NP
-                    </div>
-                    <span className="font-sans font-medium text-slate-900 truncate text-xs">
-                      NullPointer
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 font-semibold">
-                      APEX
-                    </span>
-                    <span className="text-xs font-semibold text-slate-800">2,914 LP</span>
-                  </div>
-                </div>
+                {topPlayers.length > 0 ? (
+                  topPlayers.map((player, idx) => {
+                    const rankNum = idx + 1;
+                    const rankBadgeColor =
+                      rankNum === 1
+                        ? 'text-amber-600 bg-amber-100 text-amber-800'
+                        : rankNum === 2
+                          ? 'text-sky-600 bg-sky-100 text-sky-800'
+                          : 'text-indigo-600 bg-indigo-100 text-indigo-800';
+                    const tierLabel = getTierDetails(player.rating || 1500, player.tier).currentTier;
 
-                {/* Rank 2 */}
-                <div className="px-3.5 py-2.5 rounded-lg bg-slate-50 border border-slate-200/80 flex items-center justify-between shadow-2xs hover:bg-slate-100/50 transition-colors">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="text-sky-600 font-bold text-xs w-6 shrink-0">#2</span>
-                    <div className="w-6 h-6 rounded-full bg-sky-100 text-sky-800 text-[10px] font-bold flex items-center justify-center shrink-0">
-                      AQ
-                    </div>
-                    <span className="font-sans font-medium text-slate-900 truncate text-xs">
-                      AlgoQueen
-                    </span>
+                    return (
+                      <div
+                        key={player.userId || player._id || idx}
+                        className="px-3.5 py-2.5 rounded-lg bg-slate-50 border border-slate-200/80 flex items-center justify-between shadow-2xs hover:bg-slate-100/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className={`font-bold text-xs w-6 shrink-0 ${rankNum === 1 ? 'text-amber-600' : rankNum === 2 ? 'text-sky-600' : 'text-indigo-600'}`}>
+                            #{rankNum}
+                          </span>
+                          <div className={`w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center shrink-0 ${rankBadgeColor.slice(15)}`}>
+                            {player.avatar || (player.username ? player.username.slice(0, 2).toUpperCase() : 'CC')}
+                          </div>
+                          <span className="font-sans font-medium text-slate-900 truncate text-xs">
+                            {player.username || 'Combatant'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-semibold uppercase">
+                            {tierLabel}
+                          </span>
+                          <span className="text-xs font-semibold text-slate-800">
+                            {(player.rating || 1500).toLocaleString()} LP
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="p-4 text-center text-xs font-mono text-slate-400">
+                    {loadingData ? 'Retrieving leaderboard standings...' : 'No combatants on the ladder yet.'}
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 font-semibold">
-                      APEX
-                    </span>
-                    <span className="text-xs font-semibold text-slate-800">2,882 LP</span>
-                  </div>
-                </div>
-
-                {/* Rank 3 */}
-                <div className="px-3.5 py-2.5 rounded-lg bg-slate-50 border border-slate-200/80 flex items-center justify-between shadow-2xs hover:bg-slate-100/50 transition-colors">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="text-indigo-600 font-bold text-xs w-6 shrink-0">#3</span>
-                    <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-800 text-[10px] font-bold flex items-center justify-center shrink-0">
-                      XR
-                    </div>
-                    <span className="font-sans font-medium text-slate-900 truncate text-xs">
-                      X_Recursive
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-semibold">
-                      APEX
-                    </span>
-                    <span className="text-xs font-semibold text-slate-800">2,840 LP</span>
-                  </div>
-                </div>
+                )}
 
                 {/* Your Rank Anchor */}
                 <div className="mt-2.5 px-3.5 py-2.5 rounded-lg bg-indigo-50/90 border border-indigo-200 flex items-center justify-between shadow-2xs">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="text-indigo-700 font-bold text-xs w-8 shrink-0">#142</span>
+                    <span className="text-indigo-700 font-bold text-xs w-8 shrink-0">
+                      {userRank ? `#${userRank}` : '#--'}
+                    </span>
                     <span className="font-sans font-semibold text-indigo-950 truncate text-xs">
-                      {currentUser?.name || 'KAELEN'} (You)
+                      {currentUser?.name || 'You'} (You)
                     </span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 font-semibold uppercase">
-                      {currentUser?.tier || 'DIAMOND'}
+                      {tierInfo.currentTier}
                     </span>
                     <span className="text-xs font-bold text-indigo-900">{rating.toLocaleString()} LP</span>
                   </div>

@@ -1,17 +1,158 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { roomAPI } from '../services/api';
 
 export default function PrivateRoomView({ navigate, currentUser, onStartBattle }) {
-  const [roomCode] = useState('CD-8492');
+  const [roomCode] = useState(() => {
+    return sessionStorage.getItem('activeRoomCode') || 'CD-8492';
+  });
+  const [roomData, setRoomData] = useState(null);
   const [isHostReady, setIsHostReady] = useState(true);
-  const [isChallengerJoined, setIsChallengerJoined] = useState(true);
+  const [isGuestReady, setIsGuestReady] = useState(true);
   const [copied, setCopied] = useState(false);
   const [selectedDifficulty, setSelectedDifficulty] = useState('Medium');
   const [timeLimit, setTimeLimit] = useState('15:00');
+  const [isStarting, setIsStarting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const hasTransitioned = useRef(false);
+
+  // Check role: Host (Owner) vs Guest
+  const isOwner = Boolean(
+    currentUser &&
+    roomData &&
+    (String(currentUser.id) === String(roomData.hostId) ||
+      (currentUser.name && roomData.hostName && currentUser.name.toLowerCase() === roomData.hostName.toLowerCase()))
+  );
+
+  const isGuest = Boolean(
+    currentUser &&
+    roomData &&
+    (String(currentUser.id) === String(roomData.guestId) ||
+      (currentUser.name && roomData.guestName && currentUser.name.toLowerCase() === roomData.guestName.toLowerCase()))
+  );
+
+  const isChallengerJoined = Boolean(
+    roomData?.guestId ||
+    (roomData?.players && roomData.players.length >= 2) ||
+    (roomData?.status && roomData.status !== 'waiting')
+  );
+
+  const challengerName = roomData?.guestName || roomData?.players?.[1]?.name || 'Challenger';
+  const hostName = roomData?.hostName || currentUser?.name || 'Room Host';
+
+  // Transition into the arena
+  const transitionToMatch = (data) => {
+    if (hasTransitioned.current) return;
+    hasTransitioned.current = true;
+
+    const problem = data?.questions?.[0] || null;
+    const opponent = isOwner ? (data?.guestName || challengerName) : (data?.hostName || hostName);
+
+    const matchConfig = {
+      roomCode: data?.code || roomCode,
+      type: 'Private Scrimmage',
+      opponent,
+      opponentRating: isOwner ? 2395 : 2180,
+      opponentAvatar: opponent.slice(0, 2).toUpperCase(),
+      difficulty: selectedDifficulty || data?.difficulty || 'Medium',
+      timeLimit: timeLimit || data?.timeLimit || '15:00',
+      problem: problem?.title || 'Binary Search',
+      problemData: problem,
+    };
+
+    if (onStartBattle) {
+      onStartBattle(matchConfig);
+    } else {
+      navigate('arena');
+    }
+  };
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function loadRoomDetails() {
+      if (!roomCode) return;
+      try {
+        const res = await roomAPI.getRoom(roomCode).catch((err) => {
+          if (err?.status === 404) {
+            return { notFound: true };
+          }
+          return null;
+        });
+
+        if (res?.notFound) {
+          sessionStorage.removeItem('activeRoomCode');
+          sessionStorage.removeItem('codeclash_active_match');
+          navigate('lobby');
+          return;
+        }
+
+        const data = res?.data?.room || res?.data || res;
+        if (!isCancelled && data && (data.code || data._id)) {
+          setRoomData(data);
+          if (data.difficulty) setSelectedDifficulty(data.difficulty);
+          if (data.timeLimit) setTimeLimit(data.timeLimit);
+
+          // If room status is in_progress, transition into arena immediately
+          if (data.status === 'in_progress' && !hasTransitioned.current) {
+            transitionToMatch(data);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load room details:', err);
+      }
+    }
+
+    loadRoomDetails();
+    const interval = setInterval(loadRoomDetails, 1200);
+
+    return () => {
+      isCancelled = true;
+      clearInterval(interval);
+    };
+  }, [roomCode]);
 
   const handleCopyCode = () => {
     navigator.clipboard?.writeText?.(roomCode);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleLeaveRoom = async () => {
+    try {
+      const playerId = currentUser?.id || 'guest';
+      await roomAPI.leaveRoom(roomCode, playerId);
+    } catch (err) {
+      console.warn('Error leaving room:', err.message);
+    } finally {
+      sessionStorage.removeItem('activeRoomCode');
+      sessionStorage.removeItem('codeclash_active_match');
+      navigate('lobby');
+    }
+  };
+
+  // Only the room owner triggers start
+  const handleStartCombat = async () => {
+    if (!isOwner || isStarting) return;
+    if (!isChallengerJoined || roomData?.status !== 'ready') {
+      setErrorMessage('Cannot start match before all required players have joined.');
+      return;
+    }
+
+    setIsStarting(true);
+    setErrorMessage('');
+
+    try {
+      const res = await roomAPI.startBattle(roomCode, currentUser?.id);
+      const updatedRoom = res?.data?.room || res?.room || roomData;
+      if (updatedRoom) {
+        setRoomData(updatedRoom);
+        transitionToMatch(updatedRoom);
+      }
+    } catch (err) {
+      setErrorMessage(err.message || 'Failed to start match');
+      setIsStarting(false);
+    }
   };
 
   return (
@@ -40,7 +181,7 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
               <strong className="text-indigo-600 font-bold tracking-wider">{roomCode}</strong>
               <button
                 onClick={handleCopyCode}
-                className="ml-1 text-slate-400 hover:text-slate-800 transition-colors"
+                className="ml-1 text-slate-400 hover:text-slate-800 transition-colors cursor-pointer"
                 title="Copy Room Code"
               >
                 <span className="material-symbols-outlined text-sm">
@@ -50,8 +191,8 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
             </div>
 
             <button
-              onClick={() => navigate('lobby')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 hover:border-rose-300 hover:bg-rose-50 text-xs font-mono font-medium text-slate-600 hover:text-rose-600 transition-colors shadow-2xs"
+              onClick={handleLeaveRoom}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 hover:border-rose-300 hover:bg-rose-50 text-xs font-mono font-medium text-slate-600 hover:text-rose-600 transition-colors shadow-2xs cursor-pointer"
             >
               <span className="material-symbols-outlined text-sm">logout</span>
               <span>LEAVE ROOM</span>
@@ -59,28 +200,39 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
           </div>
         </section>
 
+        {/* Error Notification */}
+        {errorMessage && (
+          <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-mono flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-sm">error</span>
+              <span>{errorMessage}</span>
+            </div>
+            <button onClick={() => setErrorMessage('')} className="hover:text-rose-900">×</button>
+          </div>
+        )}
+
         {/* 1v1 Staging Arena Layout: Host vs Challenger */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
           {/* Host Card (5 cols) */}
           <div className="lg:col-span-5 bg-white rounded-2xl border-2 border-indigo-500/80 p-6 shadow-sm flex flex-col justify-between relative overflow-hidden">
             <div className="absolute top-3 right-3 px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 font-mono text-[10px] font-bold border border-indigo-100 uppercase">
-              ROOM HOST
+              ROOM HOST {isOwner && '(YOU)'}
             </div>
 
             <div className="space-y-4">
               <div className="flex items-center gap-4">
                 <div className="w-14 h-14 rounded-xl bg-gradient-to-tr from-indigo-600 to-sky-400 text-white font-mono font-bold flex items-center justify-center text-lg shadow-sm">
-                  {currentUser?.avatar || 'KV'}
+                  {isOwner ? (currentUser?.avatar || 'KV') : (hostName.slice(0, 2).toUpperCase())}
                 </div>
                 <div>
-                  <h3 className="font-bold text-slate-900 text-base">{currentUser?.name || 'Kaelen'}</h3>
+                  <h3 className="font-bold text-slate-900 text-base">{hostName}</h3>
                   <div className="font-mono text-xs text-indigo-600 font-medium">
-                    {currentUser?.handle || '@Kaelen_V'}
+                    {isOwner ? (currentUser?.handle || `@${currentUser?.name?.toLowerCase() || 'host'}`) : `@${hostName.toLowerCase()}`}
                   </div>
                   <div className="flex items-center gap-1.5 mt-1 font-mono text-[11px] text-slate-500">
-                    <span className="text-sky-600 font-semibold">{currentUser?.tier || 'Diamond'}</span>
+                    <span className="text-sky-600 font-semibold">{isOwner ? (currentUser?.tier || 'Diamond') : 'Diamond'}</span>
                     <span>•</span>
-                    <span>{currentUser?.rating || 2148} LP</span>
+                    <span>{isOwner ? (currentUser?.rating || 1500) : 2180} LP</span>
                   </div>
                 </div>
               </div>
@@ -98,16 +250,22 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
             </div>
 
             <div className="pt-6">
-              <button
-                onClick={() => setIsHostReady(!isHostReady)}
-                className={`w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold tracking-wider uppercase border transition-all ${
-                  isHostReady
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                    : 'bg-slate-100 text-slate-600 border-slate-200'
-                }`}
-              >
-                {isHostReady ? '✓ YOU ARE READY' : 'SET AS READY'}
-              </button>
+              {isOwner ? (
+                <button
+                  onClick={() => setIsHostReady(!isHostReady)}
+                  className={`w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold tracking-wider uppercase border transition-all cursor-pointer ${
+                    isHostReady
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                      : 'bg-slate-100 text-slate-600 border-slate-200'
+                  }`}
+                >
+                  {isHostReady ? '✓ YOU ARE READY (HOST)' : 'SET AS READY'}
+                </button>
+              ) : (
+                <div className="w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold tracking-wider uppercase bg-emerald-50 text-emerald-700 border border-emerald-300 text-center">
+                  ✓ HOST READY (LEADER)
+                </div>
+              )}
             </div>
           </div>
 
@@ -122,7 +280,7 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
           {/* Challenger Card (5 cols) */}
           <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col justify-between relative overflow-hidden">
             <div className="absolute top-3 right-3 px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-mono text-[10px] font-bold border border-slate-200 uppercase">
-              CHALLENGER
+              CHALLENGER {isGuest && '(YOU)'}
             </div>
 
             {isChallengerJoined ? (
@@ -130,15 +288,19 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
                 <div className="space-y-4">
                   <div className="flex items-center gap-4">
                     <div className="w-14 h-14 rounded-xl bg-slate-800 text-white font-mono font-bold flex items-center justify-center text-lg shadow-sm">
-                      VS
+                      {isGuest ? (currentUser?.avatar || 'KV') : challengerName.slice(0, 2).toUpperCase()}
                     </div>
                     <div>
-                      <h3 className="font-bold text-slate-900 text-base">v0_Sniper</h3>
-                      <div className="font-mono text-xs text-slate-500 font-medium">@v0_sniper</div>
+                      <h3 className="font-bold text-slate-900 text-base">
+                        {isGuest ? (currentUser?.name || challengerName) : challengerName}
+                      </h3>
+                      <div className="font-mono text-xs text-slate-500 font-medium">
+                        @{isGuest ? (currentUser?.name?.toLowerCase() || 'cadet') : challengerName.toLowerCase()}
+                      </div>
                       <div className="flex items-center gap-1.5 mt-1 font-mono text-[11px] text-slate-500">
-                        <span className="text-sky-600 font-semibold">Master</span>
+                        <span className="text-sky-600 font-semibold">{isGuest ? (currentUser?.tier || 'Master') : 'Master'}</span>
                         <span>•</span>
-                        <span>2,395 LP</span>
+                        <span>{isGuest ? (currentUser?.rating || 1500) : 2395} LP</span>
                       </div>
                     </div>
                   </div>
@@ -156,9 +318,22 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
                 </div>
 
                 <div className="pt-6">
-                  <div className="w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold tracking-wider uppercase bg-emerald-50 text-emerald-700 border border-emerald-300 text-center">
-                    ✓ OPPONENT READY
-                  </div>
+                  {isGuest ? (
+                    <button
+                      onClick={() => setIsGuestReady(!isGuestReady)}
+                      className={`w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold tracking-wider uppercase border transition-all cursor-pointer ${
+                        isGuestReady
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                          : 'bg-slate-100 text-slate-600 border-slate-200'
+                      }`}
+                    >
+                      {isGuestReady ? '✓ YOU ARE READY' : 'SET AS READY'}
+                    </button>
+                  ) : (
+                    <div className="w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold tracking-wider uppercase bg-emerald-50 text-emerald-700 border border-emerald-300 text-center">
+                      ✓ OPPONENT READY
+                    </div>
+                  )}
                 </div>
               </>
             ) : (
@@ -169,14 +344,8 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
                 </div>
                 <div>
                   <h4 className="font-semibold text-slate-800 text-sm">Waiting for Challenger</h4>
-                  <p className="text-xs text-slate-400 mt-0.5">Share code CD-8492 to invite</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Share code {roomCode} to invite</p>
                 </div>
-                <button
-                  onClick={() => setIsChallengerJoined(true)}
-                  className="px-3 py-1 rounded bg-slate-100 hover:bg-slate-200 text-xs font-mono text-slate-700 font-medium"
-                >
-                  Simulate Player Join
-                </button>
               </div>
             )}
           </div>
@@ -193,12 +362,13 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
                 {['Easy', 'Medium', 'Hard'].map((diff) => (
                   <button
                     key={diff}
+                    disabled={!isOwner}
                     onClick={() => setSelectedDifficulty(diff)}
                     className={`px-2.5 py-1 rounded border transition-all ${
                       selectedDifficulty === diff
                         ? 'bg-indigo-50 text-indigo-700 border-indigo-200 font-semibold'
                         : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-white'
-                    }`}
+                    } ${isOwner ? 'cursor-pointer' : 'cursor-default opacity-85'}`}
                   >
                     {diff}
                   </button>
@@ -214,12 +384,13 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
                 {['10:00', '15:00', '20:00'].map((time) => (
                   <button
                     key={time}
+                    disabled={!isOwner}
                     onClick={() => setTimeLimit(time)}
                     className={`px-2.5 py-1 rounded border transition-all ${
                       timeLimit === time
                         ? 'bg-indigo-50 text-indigo-700 border-indigo-200 font-semibold'
                         : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-white'
-                    }`}
+                    } ${isOwner ? 'cursor-pointer' : 'cursor-default opacity-85'}`}
                   >
                     {time}
                   </button>
@@ -228,25 +399,39 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
             </div>
           </div>
 
-          <button
-            onClick={() => {
-              if (onStartBattle) {
-                onStartBattle({
-                  type: 'Private Room Scrimmage',
-                  opponent: 'v0_Sniper',
-                  difficulty: selectedDifficulty,
-                  timeLimit,
-                  roomCode,
-                });
-              } else {
-                navigate('arena');
-              }
-            }}
-            className="w-full md:w-auto px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white font-mono text-xs font-bold tracking-wider uppercase flex items-center justify-center gap-2 shadow-md shadow-indigo-600/20 transition-all cursor-pointer"
-          >
-            <span className="material-symbols-outlined text-base">play_arrow</span>
-            <span>START BATTLE (COMMENCE DUEL)</span>
-          </button>
+          {/* Action Area: Owner Controls Start Match; Non-Owner Waits */}
+          <div className="w-full md:w-auto">
+            {isOwner ? (
+              isChallengerJoined && roomData?.status === 'ready' ? (
+                <button
+                  id="start-match-btn"
+                  onClick={handleStartCombat}
+                  disabled={isStarting}
+                  className="w-full md:w-auto px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white font-mono text-xs font-bold tracking-wider uppercase flex items-center justify-center gap-2 shadow-md shadow-indigo-600/20 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-base">play_arrow</span>
+                  <span>{isStarting ? 'STARTING MATCH...' : 'START MATCH (COMMENCE DUEL)'}</span>
+                </button>
+              ) : (
+                <button
+                  id="start-match-disabled-btn"
+                  disabled
+                  className="w-full md:w-auto px-6 py-3 rounded-xl bg-slate-100 text-slate-400 border border-slate-200 font-mono text-xs font-bold tracking-wider uppercase flex items-center justify-center gap-2 cursor-not-allowed"
+                >
+                  <span className="material-symbols-outlined text-base">hourglass_top</span>
+                  <span>WAITING FOR CHALLENGER TO JOIN...</span>
+                </button>
+              )
+            ) : (
+              <div
+                id="waiting-for-owner-msg"
+                className="w-full md:w-auto px-5 py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 font-mono text-xs font-semibold flex items-center justify-center gap-2.5 shadow-2xs"
+              >
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+                <span>Waiting for the room owner to start the match…</span>
+              </div>
+            )}
+          </div>
         </section>
       </div>
     </div>

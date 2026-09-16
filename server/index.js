@@ -191,16 +191,26 @@ app.post('/api/rooms/:code/leave', (req, res) => {
 // Start the battle
 app.post('/api/rooms/:code/start', (req, res) => {
   const { code } = req.params;
+  const requesterId = req.body?.userId || req.body?.playerId || req.body?.hostId;
   const room = rooms.get(code.toUpperCase());
   
-  console.log(`Start battle requested for room ${code}, current status: ${room?.status}`);
+  console.log(`Start battle requested for room ${code} by ${requesterId}, current status: ${room?.status}`);
   
   if (!room) {
     return res.status(404).json({ error: 'Room not found' });
   }
 
-  if (room.status !== 'ready') {
-    return res.status(400).json({ error: 'Room is not ready. Both players must join first.' });
+  if (requesterId && room.hostId && String(room.hostId) !== String(requesterId)) {
+    return res.status(403).json({ error: 'Only the room owner can start the match' });
+  }
+
+  // Idempotency: duplicate start returns active room
+  if (room.status === 'in_progress') {
+    return res.json({ room });
+  }
+
+  if (room.status !== 'ready' || !room.guestId) {
+    return res.status(400).json({ error: 'Cannot start match before all required players have joined' });
   }
 
   room.status = 'in_progress';

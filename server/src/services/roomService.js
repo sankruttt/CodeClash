@@ -186,7 +186,7 @@ export async function leaveRoomByCode(code, playerId) {
   return inMemoryStore.leaveRoom(upperCode, playerId);
 }
 
-export async function startRoomByCode(code) {
+export async function startRoomByCode(code, requesterId = null) {
   if (!code) {
     const err = new Error('Room code is required');
     err.statusCode = 400;
@@ -204,8 +204,20 @@ export async function startRoomByCode(code) {
       throw err;
     }
 
-    if (room.status !== 'ready') {
-      const err = new Error('Room is not ready. Both players must join first.');
+    if (requesterId && room.hostId && String(room.hostId) !== String(requesterId)) {
+      const err = new Error('Only the room owner can start the match');
+      err.statusCode = 403;
+      err.code = 'NOT_ROOM_OWNER';
+      throw err;
+    }
+
+    // Idempotency: duplicate start requests return the active room
+    if (room.status === 'in_progress') {
+      return room.toJSON ? room.toJSON() : room;
+    }
+
+    if (room.status !== 'ready' || !room.guestId) {
+      const err = new Error('Cannot start match before all required players have joined');
       err.statusCode = 400;
       err.code = 'ROOM_NOT_READY';
       throw err;
@@ -217,7 +229,7 @@ export async function startRoomByCode(code) {
     return room.toJSON ? room.toJSON() : room;
   }
 
-  return inMemoryStore.startRoom(upperCode);
+  return inMemoryStore.startRoom(upperCode, requesterId);
 }
 
 export default {

@@ -28,7 +28,9 @@ const codingProblemSchema = new mongoose.Schema({
     javascript: { type: String, default: '' },
     python: { type: String, default: '' },
     typescript: { type: String, default: '' },
-    java: { type: String, default: '' }
+    java: { type: String, default: '' },
+    c: { type: String, default: '' },
+    cpp: { type: String, default: '' }
   },
   tags: [{
     type: String

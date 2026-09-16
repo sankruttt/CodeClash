@@ -11,6 +11,7 @@ import {
   completeMatch 
 } from '../services/matchService.js';
 import { updatePlayerStatsAfterMatch, addMatchHistory } from '../services/scoringService.js';
+import { recordUserActivity } from '../services/streakService.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 
 export const createMatch = asyncHandler(async (req, res) => {
@@ -206,6 +207,13 @@ export const completeBattle = asyncHandler(async (req, res) => {
   
   // 1. Direct completion from frontend with explicit winner/scores
   if (winner !== undefined || scores !== undefined) {
+    if (winner && !String(winner).startsWith('guest_')) {
+      await recordUserActivity(winner).catch(() => null);
+    }
+    if (userId && !String(userId).startsWith('guest_')) {
+      await recordUserActivity(userId).catch(() => null);
+    }
+
     let inMemMatch = inMemoryStore.getMatch(id);
     if (inMemMatch) {
       inMemMatch.status = 'completed';
@@ -276,6 +284,7 @@ export const completeBattle = asyncHandler(async (req, res) => {
     if (player.userId) {
       await updatePlayerStatsAfterMatch(player.userId, completedMatch, player);
       await addMatchHistory(player.userId, completedMatch, player, opponent);
+      await recordUserActivity(player.userId).catch(() => null);
     }
   }
   
@@ -322,10 +331,32 @@ export const getMatchByCode = asyncHandler(async (req, res) => {
   });
 });
 
+export const listMatches = asyncHandler(async (req, res) => {
+  const limit = parseInt(req.query.limit) || 20;
+  if (isMongoConnected()) {
+    const matches = await Match.find({})
+      .sort({ createdAt: -1 })
+      .limit(limit);
+    return res.json({
+      success: true,
+      matches,
+      data: { matches, count: matches.length }
+    });
+  } else {
+    const matches = Array.from(inMemoryStore.matches.values()).slice(0, limit);
+    return res.json({
+      success: true,
+      matches,
+      data: { matches, count: matches.length }
+    });
+  }
+});
+
 export default { 
   createMatch, 
   joinExistingMatch, 
   getMatch, 
+  listMatches,
   updateProgress,
   startBattle, 
   completeBattle, 

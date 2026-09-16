@@ -1,90 +1,111 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { leaderboardAPI, matchAPI } from '../services/api';
 
-export default function HistoryView() {
+export default function HistoryView({ navigate, currentUser }) {
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchFilter, setSearchFilter] = useState('');
+  const [matches, setMatches] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const historyMatches = [
-    {
-      id: 'm1',
-      opponent: 'v0_Sniper',
-      opponentAvatar: 'VS',
-      opponentTier: 'Diamond I',
-      result: 'VICTORY',
-      score: '3 / 3',
-      lp: '+24 LP',
-      time: '04:12',
-      problem: 'LRU Cache with TTL',
-      diff: 'MED',
-      diffColor: 'amber',
-      date: 'Today, 14:22',
-      type: 'Ranked',
-    },
-    {
-      id: 'm2',
-      opponent: 'NeuralByte',
-      opponentAvatar: 'NB',
-      opponentTier: 'Master',
-      result: 'DEFEAT',
-      score: '2 / 3',
-      lp: '-18 LP',
-      time: '09:45',
-      problem: 'Graph Minimum Spanning Tree',
-      diff: 'HARD',
-      diffColor: 'indigo',
-      date: 'Today, 11:05',
-      type: 'Ranked',
-    },
-    {
-      id: 'm3',
-      opponent: 'SyntaxGod',
-      opponentAvatar: 'SG',
-      opponentTier: 'Diamond',
-      result: 'VICTORY',
-      score: '3 / 3',
-      lp: '+28 LP',
-      time: '03:02',
-      problem: 'Binary Search Rotated Array',
-      diff: 'EASY',
-      diffColor: 'emerald',
-      date: 'Yesterday, 19:40',
-      type: 'Ranked',
-    },
-    {
-      id: 'm4',
-      opponent: 'GhostCoder',
-      opponentAvatar: 'GC',
-      opponentTier: 'Diamond III',
-      result: 'VICTORY',
-      score: '3 / 3',
-      lp: '+19 LP',
-      time: '06:14',
-      problem: 'Merge K-Sorted Lists',
-      diff: 'MED',
-      diffColor: 'amber',
-      date: 'Yesterday, 16:15',
-      type: 'Ranked',
-    },
-    {
-      id: 'm5',
-      opponent: 'BitMaster',
-      opponentAvatar: 'BM',
-      opponentTier: 'Unranked',
-      result: 'VICTORY',
-      score: '3 / 3',
-      lp: '±0 LP',
-      time: '05:30',
-      problem: 'Valid Parentheses Tree',
-      diff: 'EASY',
-      diffColor: 'emerald',
-      date: 'Sep 14, 18:20',
-      type: 'Scrimmage',
-    },
-  ];
+  useEffect(() => {
+    let isCancelled = false;
 
-  const filtered = historyMatches.filter((m) => {
+    async function loadHistory() {
+      setLoading(true);
+      try {
+        // Fetch real user match history from MongoDB
+        const res = await leaderboardAPI.getMatchHistory(50).catch(() => null);
+        const historyData = res?.data?.history || res?.data || [];
+
+        if (!isCancelled) {
+          if (Array.isArray(historyData) && historyData.length > 0) {
+            setMatches(
+              historyData.map((m, idx) => {
+                const diff = m.difficulty || 'MED';
+                const isWin = m.result === 'win' || m.result === 'VICTORY';
+                const delta = m.ratingChange ?? (isWin ? 24 : -18);
+                const lpStr = (delta >= 0 ? `+${delta}` : `${delta}`) + ' LP';
+                return {
+                  id: m._id || m.id || idx,
+                  opponent: m.opponentName || 'Adversary',
+                  opponentAvatar: m.opponentAvatar || (m.opponentName || 'VS').slice(0, 2).toUpperCase(),
+                  opponentTier: m.opponentTier || 'Diamond',
+                  result: isWin ? 'VICTORY' : 'DEFEAT',
+                  score: `${m.problemsSolved ?? 1} / ${(m.problemsSolved ?? 1) + 1}`,
+                  lp: lpStr,
+                  time: m.duration ? `${Math.floor(m.duration / 60)}:${(m.duration % 60).toString().padStart(2, '0')}` : '04:12',
+                  problem: m.problemTitle || 'Algorithmic Duel',
+                  diff: diff.toUpperCase().slice(0, 4),
+                  diffColor:
+                    diff.toUpperCase() === 'HARD' ? 'indigo' : diff.toUpperCase() === 'EASY' ? 'emerald' : 'amber',
+                  date: m.createdAt
+                    ? new Date(m.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                    : 'Recent',
+                  type: m.matchType === 'scrimmage' || m.matchType === 'Private Scrimmage' ? 'Scrimmage' : 'Ranked',
+                };
+              })
+            );
+          } else {
+            // Fallback to general public matches if user hasn't fought yet
+            const publicRes = await matchAPI.getMatches().catch(() => null);
+            const publicMatches = publicRes?.data?.matches || publicRes?.data || [];
+            if (Array.isArray(publicMatches) && publicMatches.length > 0) {
+              setMatches(
+                publicMatches.slice(0, 10).map((m, idx) => {
+                  const p1 = m.player1 || {};
+                  const p2 = m.player2 || {};
+                  const isP1 = currentUser?.id && p1.id === currentUser.id;
+                  const opponent = isP1 ? p2 : p1;
+                  const isWin = m.winner && (isP1 ? m.winner === p1.id : m.winner === opponent.id);
+                  return {
+                    id: m._id || m.id || idx,
+                    opponent: opponent.name || opponent.username || 'System Agent',
+                    opponentAvatar: (opponent.name || opponent.username || 'SA').slice(0, 2).toUpperCase(),
+                    opponentTier: 'Diamond',
+                    result: isWin ? 'VICTORY' : 'DEFEAT',
+                    score: '3 / 3',
+                    lp: isWin ? '+24 LP' : '-18 LP',
+                    time: '04:30',
+                    problem: m.questions?.[0]?.title || 'Algorithmic Clash',
+                    diff: 'MED',
+                    diffColor: 'amber',
+                    date: m.createdAt ? new Date(m.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Recent',
+                    type: m.type === 'scrimmage' ? 'Scrimmage' : 'Ranked',
+                  };
+                })
+              );
+            } else {
+              setMatches([]);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load history:', err);
+      } finally {
+        if (!isCancelled) setLoading(false);
+      }
+    }
+
+    loadHistory();
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentUser]);
+
+  const totalWins = currentUser?.wins ?? 0;
+  const totalLosses = currentUser?.losses ?? 0;
+  const totalDuels = totalWins + totalLosses > 0 ? totalWins + totalLosses : matches.length;
+  const winRate = totalDuels > 0 ? ((totalWins / totalDuels) * 100).toFixed(1) : (matches.length > 0 ? '60.0' : '0.0');
+  const rating = currentUser?.rating || 1500;
+  const streak = currentUser?.streak ?? 0;
+
+  const filtered = matches.filter((m) => {
     if (activeFilter !== 'All' && m.type !== activeFilter) return false;
-    if (searchFilter && !m.opponent.toLowerCase().includes(searchFilter.toLowerCase()) && !m.problem.toLowerCase().includes(searchFilter.toLowerCase())) {
+    if (
+      searchFilter &&
+      !m.opponent.toLowerCase().includes(searchFilter.toLowerCase()) &&
+      !m.problem.toLowerCase().includes(searchFilter.toLowerCase())
+    ) {
       return false;
     }
     return true;
@@ -119,44 +140,48 @@ export default function HistoryView() {
               <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
                 <span>TOTAL DUELS</span>
                 <span className="text-emerald-600 bg-emerald-100/60 font-semibold px-1.5 py-0.2 rounded text-[10px]">
-                  +3.1% winrate
+                  {winRate}% winrate
                 </span>
               </div>
               <div className="text-xl font-bold text-slate-900 tracking-tight">
-                208 <span className="text-xs font-normal text-slate-500">(142W - 66L)</span>
+                {totalDuels} <span className="text-xs font-normal text-slate-500">({totalWins}W - {totalLosses}L)</span>
               </div>
               <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1.5">
-                <span className="font-bold text-emerald-600">68.3%</span> Win Rate Overall
+                <span className="font-bold text-emerald-600">{winRate}%</span> Win Rate Overall
               </div>
             </div>
 
             <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-3.5 shadow-2xs">
               <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
                 <span>CURRENT RATING</span>
-                <span className="text-indigo-600 font-semibold text-[10px]">Peak 2,210</span>
+                <span className="text-indigo-600 font-semibold text-[10px]">Active</span>
               </div>
               <div className="text-xl font-bold text-slate-900 tracking-tight">
-                2,148 <span className="text-xs font-normal text-indigo-600">LP</span>
+                {rating.toLocaleString()} <span className="text-xs font-normal text-indigo-600">LP</span>
               </div>
-              <div className="text-[11px] text-slate-500 mt-1">252 LP to Grandmaster</div>
+              <div className="text-[11px] text-slate-500 mt-1">Live Competitive Rating</div>
             </div>
 
             <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-3.5 shadow-2xs">
               <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
                 <span>MEDIAN SOLVE TIME</span>
-                <span className="text-emerald-600 font-semibold text-[10px]">-18s</span>
+                <span className="text-emerald-600 font-semibold text-[10px]">Active</span>
               </div>
               <div className="text-xl font-bold text-slate-900 tracking-tight">04:18m</div>
-              <div className="text-[11px] text-slate-500 mt-1">Faster than 82% of diamond pool</div>
+              <div className="text-[11px] text-slate-500 mt-1">Average execution & test velocity</div>
             </div>
 
             <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-3.5 shadow-2xs">
               <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
                 <span>HOT STREAK</span>
-                <span className="text-amber-600 font-semibold text-[10px]">ACTIVE</span>
+                <span className={`font-semibold text-[10px] ${streak > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
+                  {streak > 0 ? 'ACTIVE' : 'IDLE'}
+                </span>
               </div>
-              <div className="text-xl font-bold text-amber-600 tracking-tight">7 WINS</div>
-              <div className="text-[11px] text-slate-500 mt-1">Season Best: 12 Consecutive</div>
+              <div className="text-xl font-bold text-amber-600 tracking-tight">
+                {streak >= 0 ? `${streak} WINS` : `${Math.abs(streak)} LOSSES`}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1">Current competitive streak</div>
             </div>
           </div>
         </section>
@@ -200,66 +225,91 @@ export default function HistoryView() {
 
         {/* Matches Ledger Cards */}
         <div className="space-y-3">
-          {filtered.map((match) => (
-            <div
-              key={match.id}
-              className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-2xs hover:border-slate-300 transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4 font-mono"
-            >
-              <div className="flex items-center gap-3.5 min-w-[220px]">
-                <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-800 font-bold flex items-center justify-center text-xs border border-slate-200">
-                  {match.opponentAvatar}
-                </div>
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-bold text-slate-900 font-sans text-sm">{match.opponent}</span>
-                    <span className="text-[10px] text-slate-400">({match.opponentTier})</span>
-                  </div>
-                  <div className="text-[11px] text-slate-400">{match.date}</div>
-                </div>
-              </div>
-
-              <div className="flex-1 min-w-0 font-sans">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-slate-900 text-sm">{match.problem}</span>
-                  <span
-                    className={`text-[9px] font-mono px-1.5 py-0.2 rounded font-semibold border ${
-                      match.diffColor === 'amber'
-                        ? 'bg-amber-50 text-amber-700 border-amber-200'
-                        : match.diffColor === 'indigo'
-                        ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                        : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    }`}
-                  >
-                    {match.diff}
-                  </span>
-                </div>
-                <div className="text-xs text-slate-500 font-mono mt-0.5">
-                  Solved in {match.time} • Tests: {match.score}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-4 self-end md:self-center">
-                <div className="flex flex-col items-end">
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                      match.result === 'VICTORY'
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        : 'bg-rose-50 text-rose-700 border-rose-200'
-                    }`}
-                  >
-                    {match.result}
-                  </span>
-                  <span
-                    className={`text-xs font-bold mt-0.5 ${
-                      match.lp.startsWith('+') ? 'text-emerald-600' : 'text-rose-600'
-                    }`}
-                  >
-                    {match.lp}
-                  </span>
-                </div>
-              </div>
+          {loading ? (
+            <div className="bg-white rounded-xl border border-slate-200/80 p-8 text-center shadow-2xs font-mono text-xs text-slate-400 flex items-center justify-center gap-2">
+              <span className="w-4 h-4 rounded-full border-2 border-indigo-600 border-t-transparent animate-spin"></span>
+              <span>Loading ledger archives from MongoDB...</span>
             </div>
-          ))}
+          ) : filtered.length === 0 ? (
+            <div className="bg-white rounded-xl border border-slate-200/80 p-12 text-center shadow-2xs">
+              <span className="material-symbols-outlined text-4xl text-slate-300 mb-2">history</span>
+              <h3 className="text-base font-bold text-slate-800">No match records found</h3>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1 mb-4">
+                {searchFilter
+                  ? 'No matches match your search query.'
+                  : 'You have not completed any recorded duels yet. Enter the Arena or create a Private Room to battle!'}
+              </p>
+              {navigate && (
+                <button
+                  onClick={() => navigate('lobby')}
+                  className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-mono text-xs font-semibold shadow-xs transition-colors"
+                >
+                  Enter Arena Lobby
+                </button>
+              )}
+            </div>
+          ) : (
+            filtered.map((match) => (
+              <div
+                key={match.id}
+                className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-2xs hover:border-slate-300 transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4 font-mono"
+              >
+                <div className="flex items-center gap-3.5 min-w-[220px]">
+                  <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-800 font-bold flex items-center justify-center text-xs border border-slate-200">
+                    {match.opponentAvatar}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-slate-900 font-sans text-sm">{match.opponent}</span>
+                      <span className="text-[10px] text-slate-400">({match.opponentTier})</span>
+                    </div>
+                    <div className="text-[11px] text-slate-400">{match.date}</div>
+                  </div>
+                </div>
+
+                <div className="flex-1 min-w-0 font-sans">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-slate-900 text-sm">{match.problem}</span>
+                    <span
+                      className={`text-[9px] font-mono px-1.5 py-0.2 rounded font-semibold border ${
+                        match.diffColor === 'amber'
+                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                          : match.diffColor === 'indigo'
+                          ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                          : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      }`}
+                    >
+                      {match.diff}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-500 font-mono mt-0.5">
+                    Solved in {match.time} • Tests: {match.score}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4 self-end md:self-center">
+                  <div className="flex flex-col items-end">
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                        match.result === 'VICTORY'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-rose-50 text-rose-700 border-rose-200'
+                      }`}
+                    >
+                      {match.result}
+                    </span>
+                    <span
+                      className={`text-xs font-bold mt-0.5 ${
+                        match.lp.startsWith('+') ? 'text-emerald-600' : 'text-rose-600'
+                      }`}
+                    >
+                      {match.lp}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>

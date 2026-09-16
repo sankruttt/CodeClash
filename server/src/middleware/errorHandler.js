@@ -5,10 +5,11 @@ export function errorHandler(err, req, res, next) {
   // Zod validation error
   if (err.name === 'ZodError' || err.issues || (err.errors && Array.isArray(err.errors))) {
     const issues = err.issues || err.errors || [];
+    const firstMsg = issues.map(e => e.message).filter(Boolean).join('. ') || 'Invalid request data';
     return res.status(400).json({
       success: false,
       error: 'VALIDATION_ERROR',
-      message: 'Invalid request data',
+      message: firstMsg,
       details: issues.map(e => ({
         field: (e.path || []).join('.'),
         message: e.message

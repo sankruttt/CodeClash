@@ -1,38 +1,113 @@
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) || 'http://localhost:3001/api';
 
-// Helper for fetch with error handling
-async function apiRequest(endpoint, options = {}) {
-  console.log(`API Request: ${options.method || 'GET'} ${endpoint}`);
+// Token Storage Keys
+const TOKEN_KEY = 'codeclash_token';
+const USER_KEY = 'codeclash_user';
+
+export function getAuthToken() {
+  try {
+    return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+export function setAuthToken(token) {
+  try {
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
+      sessionStorage.setItem(TOKEN_KEY, token);
+    } else {
+      clearAuthToken();
+    }
+  } catch (err) {
+    console.error('Failed to store auth token:', err);
+  }
+}
+
+export function clearAuthToken() {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(TOKEN_KEY);
+  } catch (err) {
+    console.error('Failed to clear auth token:', err);
+  }
+}
+
+// Helper for fetch with authentication & error handling
+export async function apiRequest(endpoint, options = {}) {
+  const token = getAuthToken();
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...options.headers,
+  };
+
   try {
     const response = await fetch(`${API_BASE}${endpoint}`, {
       method: options.method || 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
+      headers,
       body: options.body,
     });
-    
-    const data = await response.json();
-    console.log(`API Response: ${endpoint}`, data);
-    
-    if (!response.ok) {
-      throw new Error(data.error || `API request failed with status ${response.status}`);
+
+    let data;
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      const text = await response.text();
+      data = { message: text };
     }
-    
+
+    if (!response.ok) {
+      const errorMsg =
+        (data?.details && Array.isArray(data.details) && data.details.length > 0
+          ? data.details.map((d) => d.message || d).join('. ')
+          : null) ||
+        (data?.message && data.message !== 'Invalid request data' ? data.message : null) ||
+        data?.error?.message ||
+        (typeof data?.error === 'string' ? data.error : null) ||
+        data?.message ||
+        `API request failed with status ${response.status}`;
+
+      const error = new Error(errorMsg);
+      error.status = response.status;
+      error.data = data;
+      throw error;
+    }
+
     return data;
   } catch (error) {
-    console.error(`API Error (${endpoint}):`, error);
+    console.error(`API Error (${endpoint}):`, error.message);
     throw error;
   }
 }
 
-// Room APIs
+// ============== AUTH APIs ==============
+export const authAPI = {
+  login: (email, password) =>
+    apiRequest('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
+
+  register: ({ username, email, password, avatar }) =>
+    apiRequest('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, email, password, avatar }),
+    }),
+
+  getMe: () => apiRequest('/auth/me'),
+
+  getStreak: () => apiRequest('/auth/streak'),
+};
+
+// ============== ROOM APIs ==============
 export const roomAPI = {
-  createRoom: (hostId, hostName) =>
+  createRoom: (hostId, hostName, difficulty = 'Medium', timeLimit = '15:00') =>
     apiRequest('/rooms/create', {
       method: 'POST',
-      body: JSON.stringify({ hostId, hostName }),
+      body: JSON.stringify({ hostId, hostName, difficulty, timeLimit }),
     }),
 
   joinRoom: (roomCode, playerId, playerName) =>
@@ -50,18 +125,25 @@ export const roomAPI = {
       body: JSON.stringify({ playerId }),
     }),
 
-  startBattle: (code) =>
+  startBattle: (code, userId) =>
     apiRequest(`/rooms/${code}/start`, {
       method: 'POST',
+      body: JSON.stringify({ userId }),
     }),
 };
 
-// Match APIs
+// ============== MATCH APIs ==============
 export const matchAPI = {
   createMatch: (roomCode, player1, player2, questions) =>
     apiRequest('/matches/create', {
       method: 'POST',
       body: JSON.stringify({ roomCode, player1, player2, questions }),
+    }),
+
+  createRankedMatch: (type = 'ranked') =>
+    apiRequest('/matches', {
+      method: 'POST',
+      body: JSON.stringify({ type }),
     }),
 
   updateProgress: (matchId, playerId, questionIndex, time) =>
@@ -78,9 +160,60 @@ export const matchAPI = {
 
   getMatch: (id) =>
     apiRequest(`/matches/${id}`),
+
+  getMatches: () =>
+    apiRequest('/matches'),
 };
 
-// Player APIs
+// ============== MATCHMAKING APIs ==============
+export const matchmakingAPI = {
+  joinQueue: () =>
+    apiRequest('/matchmaking/join', {
+      method: 'POST',
+    }),
+
+  leaveQueue: () =>
+    apiRequest('/matchmaking/leave', {
+      method: 'POST',
+    }),
+
+  getStatus: () =>
+    apiRequest('/matchmaking/status'),
+};
+
+// ============== PROBLEM APIs ==============
+export const problemAPI = {
+  getProblems: () =>
+    apiRequest('/problems'),
+
+  getProblemById: (id) =>
+    apiRequest(`/problems/${id}`),
+
+  getRandomProblems: (count = 1) =>
+    apiRequest(`/problems/random?count=${count}`),
+};
+
+// ============== LEADERBOARD & STATS APIs ==============
+export const leaderboardAPI = {
+  getLeaderboard: ({ sortBy = 'rating', limit = 100 } = {}) =>
+    apiRequest(`/leaderboard?sortBy=${sortBy}&limit=${limit}`),
+
+  getUserRank: (userId) => {
+    if (!userId || String(userId).startsWith('user_')) {
+      return Promise.resolve({ success: false, data: { rank: null } });
+    }
+    return apiRequest(`/leaderboard/rank/${userId}`);
+  },
+
+  getMatchHistory: (limit = 50) => {
+    if (!getAuthToken()) {
+      return Promise.resolve({ success: false, data: { history: [], count: 0 } });
+    }
+    return apiRequest(`/leaderboard/history/me?limit=${limit}`);
+  },
+};
+
+// ============== PLAYER APIs (COMPATIBILITY) ==============
 export const playerAPI = {
   register: (id, name, rating = 1500) =>
     apiRequest('/players/register', {
@@ -92,7 +225,7 @@ export const playerAPI = {
     apiRequest(`/players/${id}`),
 };
 
-// Compiler & Execution APIs
+// ============== COMPILER & EXECUTION APIs ==============
 export const compilerAPI = {
   runCode: (code, language = 'javascript', stdin = '', testCases = []) =>
     apiRequest('/submissions/run', {
@@ -105,6 +238,22 @@ export const compilerAPI = {
       method: 'POST',
       body: JSON.stringify({ matchId, problemId, code, language, playerId }),
     }),
+
+  getSubmissionsByMatch: (matchId, playerId) =>
+    apiRequest(`/submissions/match/${matchId}${playerId ? `?playerId=${playerId}` : ''}`),
 };
 
-export default { roomAPI, matchAPI, playerAPI, compilerAPI };
+export default {
+  authAPI,
+  roomAPI,
+  matchAPI,
+  matchmakingAPI,
+  problemAPI,
+  leaderboardAPI,
+  playerAPI,
+  compilerAPI,
+  getAuthToken,
+  setAuthToken,
+  clearAuthToken,
+};
+

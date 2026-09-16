@@ -5,6 +5,9 @@ import { authMiddleware, optionalAuth } from '../middleware/auth.js';
 
 const router = Router();
 
+// List matches
+router.get('/', optionalAuth, matchController.listMatches);
+
 // Create match: supports both v2 API and frontend matchAPI.createMatch
 router.post('/create', optionalAuth, validate(createMatchSchema), matchController.createMatch);
 router.post('/', optionalAuth, validate(createMatchSchema), matchController.createMatch);

@@ -10,12 +10,31 @@ import PrivateRoomView from './views/PrivateRoomView';
 import LeaderboardView from './views/LeaderboardView';
 import HistoryView from './views/HistoryView';
 import ProfileView from './views/ProfileView';
+import {
+  authAPI,
+  problemAPI,
+  matchmakingAPI,
+  matchAPI,
+  getAuthToken,
+  setAuthToken,
+  clearAuthToken,
+} from './services/api';
+import { getTierDetails } from './utils/tierUtils';
 
 function getInitialUser() {
+  const token = localStorage.getItem('codeclash_token') || sessionStorage.getItem('codeclash_token');
+  if (!token) {
+    sessionStorage.removeItem('codeclash_user');
+    return null;
+  }
   const saved = sessionStorage.getItem('codeclash_user');
   if (saved) {
     try {
       const parsed = JSON.parse(saved);
+      if (!parsed || !parsed.id || String(parsed.id).startsWith('user_')) {
+        sessionStorage.removeItem('codeclash_user');
+        return null;
+      }
       if (parsed && (parsed.tier === 'Diamond II' || parsed.tier === 'diamond ii' || parsed.tier === 'DIAMOND II')) {
         parsed.tier = 'Diamond';
         sessionStorage.setItem('codeclash_user', JSON.stringify(parsed));
@@ -40,7 +59,14 @@ export default function App() {
   });
 
   const [queueing, setQueueing] = useState(false);
-  const [activeMatch, setActiveMatch] = useState(null);
+  const [activeMatch, setActiveMatch] = useState(() => {
+    try {
+      const stored = sessionStorage.getItem('codeclash_active_match');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
   const [matchFoundModal, setMatchFoundModal] = useState(null);
   const [arenaLockedNotice, setArenaLockedNotice] = useState(null);
   const [confirmExitModal, setConfirmExitModal] = useState(false);
@@ -128,28 +154,110 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [forfeitNotice]);
 
-  // Queue simulation: searches for ~2.8 seconds, then triggers Match Found
-  const handleToggleQueue = () => {
+  // Rehydrate authenticated session from MongoDB on initial mount or refresh
+  useEffect(() => {
+    const token = getAuthToken();
+    if (!token) {
+      setCurrentUser(null);
+      sessionStorage.removeItem('codeclash_user');
+      return;
+    }
+
+    authAPI.getMe()
+      .then((res) => {
+        if (res?.data?.user) {
+          const u = res.data.user;
+          const tierDetails = getTierDetails(u.rating || 1500, u.tier);
+          const combatant = {
+            id: u._id || u.id,
+            name: u.username || u.name,
+            handle: `@${u.username}`,
+            avatar: u.avatar || (u.username ? u.username.slice(0, 2).toUpperCase() : 'KV'),
+            color: u.color || 'indigo',
+            rating: u.rating || 1500,
+            tier: tierDetails.currentTier,
+            wins: u.wins || 0,
+            losses: u.losses || 0,
+            streak: u.streak || 0,
+            longestStreak: u.longestStreak || u.bestStreak || u.streak || 0,
+            todayCompleted: u.todayCompleted || false,
+            lastActivityDate: u.lastActivityDate || null,
+            activityHistory: u.activityHistory || [],
+            weeklyIndicators: u.weeklyIndicators || null,
+            email: u.email,
+          };
+          setCurrentUser(combatant);
+          sessionStorage.setItem('codeclash_user', JSON.stringify(combatant));
+        }
+      })
+      .catch((err) => {
+        console.warn('Session expired or invalid:', err.message);
+        clearAuthToken();
+        sessionStorage.removeItem('codeclash_user');
+        setCurrentUser(null);
+      });
+  }, []);
+
+  // Queue simulation with real backend problem selection
+  const handleToggleQueue = async () => {
     if (queueing) {
       setQueueing(false);
+      try {
+        await matchmakingAPI.leaveQueue();
+      } catch (err) {
+        console.warn('Failed to leave matchmaking queue:', err.message);
+      }
     } else {
       setQueueing(true);
+      try {
+        await matchmakingAPI.joinQueue();
+      } catch (err) {
+        console.warn('Failed to join matchmaking queue:', err.message);
+      }
     }
   };
 
   useEffect(() => {
     if (!queueing) return;
-    const timer = setTimeout(() => {
-      setQueueing(false);
-      setMatchFoundModal({
-        opponent: 'v0_Sniper',
-        type: '1v1 Ranked Clash',
-        problem: 'LRU Cache with TTL',
-        countdown: 3,
-      });
+    let isCancelled = false;
+
+    const timer = setTimeout(async () => {
+      try {
+        const probRes = await problemAPI.getRandomProblems(1);
+        const prob = probRes?.data?.problems?.[0] || probRes?.data?.[0];
+        const probTitle = prob?.title || 'Binary Search';
+
+        if (!isCancelled) {
+          setQueueing(false);
+          setMatchFoundModal({
+            opponent: 'v0_Sniper',
+            opponentRating: 2395,
+            opponentAvatar: 'VS',
+            type: '1v1 Ranked Clash',
+            problem: probTitle,
+            problemData: prob,
+            countdown: 3,
+          });
+        }
+      } catch (err) {
+        if (!isCancelled) {
+          setQueueing(false);
+          setMatchFoundModal({
+            opponent: 'v0_Sniper',
+            opponentRating: 2395,
+            opponentAvatar: 'VS',
+            type: '1v1 Ranked Clash',
+            problem: 'Binary Search',
+            countdown: 3,
+          });
+        }
+      }
     }, 2800);
 
-    return () => clearTimeout(timer);
+    return () => {
+      isCancelled = true;
+      clearTimeout(timer);
+    };
   }, [queueing]);
 
   // Match Found countdown sequence (3 -> 2 -> 1 -> Arena)
@@ -169,8 +277,12 @@ export default function App() {
           id: 'match_' + Date.now(),
           type: matchFoundModal.type,
           opponent: matchFoundModal.opponent,
+          opponentRating: matchFoundModal.opponentRating || 2395,
+          opponentAvatar: matchFoundModal.opponentAvatar || 'VS',
           problem: matchFoundModal.problem,
+          problemData: matchFoundModal.problemData,
         };
+        sessionStorage.setItem('codeclash_active_match', JSON.stringify(match));
         setActiveMatch(match);
         setMatchFoundModal(null);
         window.location.hash = 'arena';
@@ -183,12 +295,17 @@ export default function App() {
   const handleStartPrivateBattle = (roomConfig) => {
     const match = {
       id: 'room_' + (roomConfig?.roomCode || 'CD-8492'),
+      roomCode: roomConfig?.roomCode,
       type: 'Private Scrimmage',
       opponent: roomConfig?.opponent || 'v0_Sniper',
+      opponentRating: roomConfig?.opponentRating || 2180,
+      opponentAvatar: roomConfig?.opponentAvatar || 'VS',
       difficulty: roomConfig?.difficulty || 'Medium',
       timeLimit: roomConfig?.timeLimit || '15:00',
-      problem: 'LRU Cache with TTL',
+      problem: roomConfig?.problem || 'Binary Search',
+      problemData: roomConfig?.problemData,
     };
+    sessionStorage.setItem('codeclash_active_match', JSON.stringify(match));
     setActiveMatch(match);
     navigate('arena');
   };
@@ -202,18 +319,21 @@ export default function App() {
   // Confirm exit: Deduct LP penalty, record defeat, reset streak, and exit match
   const handleConfirmExit = () => {
     const penalty = 24;
-    const currentRating = currentUser?.rating ?? 2148;
+    const currentRating = currentUser?.rating ?? 1500;
     const newRating = Math.max(0, currentRating - penalty);
     if (currentUser) {
+      const tierDetails = getTierDetails(newRating);
       const updated = {
         ...currentUser,
         rating: newRating,
-        losses: (currentUser.losses || 66) + 1,
+        tier: tierDetails.currentTier,
+        losses: (currentUser.losses || 0) + 1,
         streak: 0,
       };
       setCurrentUser(updated);
       sessionStorage.setItem('codeclash_user', JSON.stringify(updated));
     }
+    sessionStorage.removeItem('codeclash_active_match');
     setActiveMatch(null);
     setConfirmExitModal(false);
     const destination = pendingNavigationRoute || 'lobby';
@@ -227,51 +347,52 @@ export default function App() {
     setPendingNavigationRoute(null);
   };
 
-  const handleLoginSuccess = (loginData) => {
-    const emailPrefix = loginData?.email ? loginData.email.split('@')[0] : 'kaelen.vance';
-    const displayName = emailPrefix
-      .split(/[._-]/)
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(' ') || 'Kaelen Vance';
-
+  const handleLoginSuccess = ({ user, token }) => {
+    if (token) setAuthToken(token);
+    const u = user || {};
+    const tierDetails = getTierDetails(u.rating || 1500, u.tier);
     const combatant = {
-      id: 'user_4829',
-      name: displayName,
-      handle: `@${emailPrefix}`,
-      avatar: emailPrefix.slice(0, 2).toUpperCase() || 'KV',
-      color: 'indigo',
-      rating: 2148,
-      tier: 'Diamond',
-      wins: 142,
-      losses: 66,
-      streak: 7,
-      email: loginData?.email || 'kaelen.vance@duel.internal',
+      id: u._id || u.id,
+      name: u.username || u.name || 'Combatant',
+      handle: `@${u.username || 'combatant'}`,
+      avatar: u.avatar || (u.username ? u.username.slice(0, 2).toUpperCase() : 'KV'),
+      color: u.color || 'indigo',
+      rating: u.rating || 1500,
+      tier: tierDetails.currentTier,
+      wins: u.wins || 0,
+      losses: u.losses || 0,
+      streak: u.streak || 0,
+      email: u.email,
     };
     setCurrentUser(combatant);
     sessionStorage.setItem('codeclash_user', JSON.stringify(combatant));
     navigate('dashboard');
   };
 
-  const handleSignUpSuccess = (signUpData) => {
-    const newUser = {
-      id: 'user_' + Math.floor(1000 + Math.random() * 9000),
-      name: signUpData?.name || 'Alex Mercer',
-      handle: signUpData?.handle || '@alex_dev',
-      avatar: signUpData?.avatar || 'AM',
-      color: 'indigo',
-      rating: 1200,
-      tier: 'Gold IV',
-      wins: 0,
-      losses: 0,
-      streak: 0,
-      email: signUpData?.email || 'alex@codeclash.dev',
+  const handleSignUpSuccess = ({ user, token, name, handle, email, avatar }) => {
+    if (token) setAuthToken(token);
+    const u = user || {};
+    const tierDetails = getTierDetails(u.rating || 1500, u.tier);
+    const combatant = {
+      id: u._id || u.id,
+      name: name || u.username || 'Combatant',
+      handle: handle || `@${u.username || 'combatant'}`,
+      avatar: avatar || u.avatar || 'CC',
+      color: u.color || 'indigo',
+      rating: u.rating || 1500,
+      tier: tierDetails.currentTier,
+      wins: u.wins || 0,
+      losses: u.losses || 0,
+      streak: u.streak || 0,
+      email: email || u.email,
     };
-    setCurrentUser(newUser);
-    sessionStorage.setItem('codeclash_user', JSON.stringify(newUser));
+    setCurrentUser(combatant);
+    sessionStorage.setItem('codeclash_user', JSON.stringify(combatant));
     navigate('dashboard');
   };
 
   const handleLogout = () => {
+    clearAuthToken();
     sessionStorage.removeItem('codeclash_user');
     setCurrentUser(null);
     setActiveMatch(null);
@@ -344,6 +465,7 @@ export default function App() {
         {route === 'history' && (
           <HistoryView
             navigate={navigate}
+            currentUser={currentUser}
           />
         )}
 

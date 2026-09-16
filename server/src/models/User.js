@@ -20,7 +20,7 @@ const userSchema = new mongoose.Schema({
   password: {
     type: String,
     required: true,
-    minlength: 8,
+    minlength: 6,
     select: false  // Don't return password by default
   },
   avatar: {
@@ -60,6 +60,18 @@ const userSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  longestStreak: {
+    type: Number,
+    default: 0
+  },
+  lastActivityDate: {
+    type: Date,
+    default: null
+  },
+  activityHistory: {
+    type: [String],
+    default: []
+  },
   isActive: {
     type: Boolean,
     default: true
@@ -72,7 +84,7 @@ const userSchema = new mongoose.Schema({
 });
 
 // Hash password before saving (async/await style for Mongoose 9)
-userSchema.pre('save', async function() {
+userSchema.pre('save', async function () {
   if (!this.isModified('password')) return;
   if (this.password && !this.password.startsWith('$2')) {
     this.password = await bcrypt.hash(this.password, 12);
@@ -80,12 +92,16 @@ userSchema.pre('save', async function() {
 });
 
 // Compare password method
-userSchema.methods.comparePassword = async function(candidatePassword) {
+userSchema.methods.comparePassword = async function (candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
 };
 
 // Public profile (no password)
-userSchema.methods.toPublicJSON = function() {
+userSchema.methods.toPublicJSON = function () {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const lastActiveStr = this.lastActivityDate ? new Date(this.lastActivityDate).toISOString().slice(0, 10) : null;
+  const todayCompleted = lastActiveStr === todayStr;
+
   return {
     id: this._id,
     username: this.username,
@@ -97,8 +113,12 @@ userSchema.methods.toPublicJSON = function() {
     wins: this.wins,
     losses: this.losses,
     draws: this.draws,
-    streak: this.streak,
-    bestStreak: this.bestStreak
+    streak: this.streak || 0,
+    bestStreak: this.longestStreak || this.bestStreak || 0,
+    longestStreak: this.longestStreak || this.bestStreak || 0,
+    lastActivityDate: this.lastActivityDate || null,
+    activityHistory: this.activityHistory || [],
+    todayCompleted
   };
 };
 

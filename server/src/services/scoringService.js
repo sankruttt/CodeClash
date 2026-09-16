@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { isMongoConnected } from '../config/database.js';
 import PlayerStatistics from '../models/PlayerStatistics.js';
 import MatchHistory from '../models/MatchHistory.js';
@@ -201,8 +202,15 @@ export async function getGlobalLeaderboard(limit = 100, sortBy = 'rating') {
 }
 
 export async function getUserRank(userId) {
+  if (!userId) return null;
   if (isMongoConnected()) {
-    const stats = await PlayerStatistics.findOne({ userId });
+    let stats = null;
+    if (mongoose.Types.ObjectId.isValid(userId)) {
+      stats = await PlayerStatistics.findOne({ userId });
+    }
+    if (!stats) {
+      stats = await PlayerStatistics.findOne({ username: userId });
+    }
     if (!stats) return null;
     
     const higherCount = await PlayerStatistics.countDocuments({
@@ -212,7 +220,7 @@ export async function getUserRank(userId) {
     return higherCount + 1;
   } else {
     const leaderboard = inMemoryStore.getLeaderboard(1000);
-    const index = leaderboard.findIndex(p => p.userId === userId);
+    const index = leaderboard.findIndex(p => p.userId === userId || p.username === userId);
     return index === -1 ? null : index + 1;
   }
 }
@@ -220,7 +228,11 @@ export async function getUserRank(userId) {
 // ============== USER HISTORY ==============
 
 export async function getUserMatchHistory(userId, limit = 50) {
+  if (!userId) return [];
   if (isMongoConnected()) {
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return [];
+    }
     return await MatchHistory.find({ userId })
       .sort({ createdAt: -1 })
       .limit(limit);
