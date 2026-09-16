@@ -21,6 +21,8 @@ import submissionRoutes from './routes/submissions.js';
 import problemRoutes from './routes/problems.js';
 import leaderboardRoutes from './routes/leaderboard.js';
 import matchmakingRoutes from './routes/matchmaking.js';
+import roomRoutes from './routes/rooms.js';
+import playerRoutes from './routes/players.js';
 
 dotenv.config();
 
@@ -145,7 +147,9 @@ app.get('/', (req, res) => {
       submissions: '/api/submissions',
       problems: '/api/problems',
       leaderboard: '/api/leaderboard',
-      matchmaking: '/api/matchmaking'
+      matchmaking: '/api/matchmaking',
+      rooms: '/api/rooms',
+      players: '/api/players'
     }
   });
 });
@@ -168,6 +172,10 @@ app.get('/api/health', (req, res) => {
       ? 'mongodb'
       : 'in-memory',
 
+    rooms: inMemoryStore.rooms.size,
+    matches: inMemoryStore.matches.size,
+    players: inMemoryStore.players.size,
+
     timestamp: new Date().toISOString(),
 
     uptime: process.uptime()
@@ -189,6 +197,10 @@ app.use('/api/problems', problemRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
 
 app.use('/api/matchmaking', matchmakingRoutes);
+
+app.use('/api/rooms', roomRoutes);
+
+app.use('/api/players', playerRoutes);
 
 // ============================================================
 // 404 HANDLER

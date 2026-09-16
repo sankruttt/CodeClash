@@ -1,12 +1,73 @@
 <!doctype html>
-<html lang="en">
+<html class="light" lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>training</title>
+    <title>CodeClash // Competitive Coding Arena</title>
+    <!-- Google Fonts: Geist, Inter, JetBrains Mono, and Material Symbols Outlined -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+      rel="stylesheet"
+    />
+    <!-- Tailwind CSS with forms and container queries plugins -->
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              surface: "#faf8ff",
+              "surface-dim": "#d2d9f4",
+              "surface-bright": "#faf8ff",
+              "surface-container-lowest": "#ffffff",
+              "surface-container-low": "#f8f9fc",
+              "surface-container": "#eaedff",
+              "surface-container-high": "#e2e7ff",
+              "surface-container-highest": "#dae2fd",
+              "surface-variant": "#dae2fd",
+              outline: "#777587",
+              "outline-variant": "#e2e8f0",
+              "border-hairline": "rgba(226, 232, 240, 0.8)",
+              "border-subtle": "#e2e8f0",
+              primary: "#4f46e5",
+              "primary-container": "#3525cd",
+              "primary-fixed": "#e2dfff",
+              "primary-fixed-dim": "#c3c0ff",
+              "on-primary": "#ffffff",
+              "on-primary-container": "#dad7ff",
+              secondary: "#0284c7",
+              "secondary-container": "#6cf8bb",
+              tertiary: "#059669",
+              "tertiary-container": "#006693",
+              "on-tertiary": "#ffffff",
+              "on-surface": "#0f172a",
+              "on-surface-variant": "#64748b",
+              error: "#dc2626",
+              "error-container": "#fee2e2",
+              brand: {
+                surface: "#faf8ff",
+                card: "#ffffff",
+                border: "#e2e8f0",
+                muted: "#64748b",
+                neon: "#4f46e5",
+                neonHover: "#4338ca",
+                accent: "#0284c7",
+              },
+            },
+            fontFamily: {
+              sans: ["Geist", "Inter", "system-ui", "sans-serif"],
+              mono: ["JetBrains Mono", "monospace"],
+            },
+          },
+        },
+      };
+    </script>
   </head>
-  <body>
+  <body class="min-h-screen bg-[#f8f9fc] text-slate-900 antialiased font-sans selection:bg-indigo-100 selection:text-indigo-700">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

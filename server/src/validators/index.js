@@ -28,8 +28,12 @@ export const loginSchema = z.object({
 
 export const createMatchSchema = z.object({
   type: z.enum(['ranked', 'casual', 'private']).default('ranked'),
-  problemIds: z.array(z.string()).optional()
-});
+  problemIds: z.array(z.string()).optional(),
+  roomCode: z.string().optional(),
+  player1: z.any().optional(),
+  player2: z.any().optional(),
+  questions: z.array(z.any()).optional()
+}).passthrough();
 
 export const joinMatchSchema = z.object({
   roomCode: z.string()
@@ -50,8 +54,9 @@ export const submitCodeSchema = z.object({
   code: z.string()
     .min(1, 'Code cannot be empty')
     .max(50000, 'Code too long (max 50000 chars)'),
-  language: z.enum(['javascript', 'python', 'typescript', 'java'])
-});
+  language: z.enum(['javascript', 'python', 'typescript', 'java']),
+  playerId: z.string().optional()
+}).passthrough();
 
 // ============== PROBLEM VALIDATORS ==============
 

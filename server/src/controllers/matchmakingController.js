@@ -45,7 +45,13 @@ export const getMatchmakingStatus = asyncHandler(async (req, res) => {
   
   res.json({
     success: true,
-    data: { status }
+    data: {
+      inQueue: status.inQueue,
+      position: status.position,
+      queueLength: status.queueLength,
+      estimatedWait: status.estimatedWait,
+      status
+    }
   });
 });
 

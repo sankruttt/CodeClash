@@ -17,6 +17,8 @@ class InMemoryStore {
     this.statistics = new Map();
     this.history = new Map();
     this.leaderboard = new Map();
+    this.rooms = new Map();
+    this.players = new Map();
     this.matchmakingQueue = [];
     this.idCounter = 1;
     
@@ -441,6 +443,184 @@ class InMemoryStore {
   getQueuePosition(userId) {
     const index = this.matchmakingQueue.findIndex(e => e.userId === userId);
     return index === -1 ? -1 : index + 1;
+  }
+
+  // ============ ROOMS ============
+
+  generateRoomCode() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let code = '';
+    for (let i = 0; i < 6; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+  }
+
+  createRoom({ hostId, hostName, difficulty = 'Medium', timeLimit = '15:00', questions = null }) {
+    let roomCode = this.generateRoomCode();
+    while (this.rooms.has(roomCode)) {
+      roomCode = this.generateRoomCode();
+    }
+
+    const roomQuestions = questions || Array.from(this.problems.values()).slice(0, 3).map(p => ({
+      id: p.id,
+      title: p.title,
+      difficulty: p.difficulty,
+      description: p.description,
+      constraints: p.constraints,
+      examples: p.examples,
+      starterCode: p.starterCode?.javascript || ''
+    }));
+
+    const room = {
+      code: roomCode,
+      hostId,
+      hostName,
+      guestId: null,
+      guestName: null,
+      status: 'waiting',
+      questions: roomQuestions,
+      difficulty,
+      timeLimit,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    this.rooms.set(roomCode, room);
+    return room;
+  }
+
+  getRoom(code) {
+    if (!code) return null;
+    return this.rooms.get(code.toUpperCase()) || null;
+  }
+
+  joinRoom(code, playerId, playerName) {
+    const room = this.getRoom(code);
+    if (!room) {
+      const err = new Error('Room not found');
+      err.statusCode = 404;
+      err.code = 'ROOM_NOT_FOUND';
+      throw err;
+    }
+
+    if (room.status !== 'waiting') {
+      const err = new Error('Room is no longer accepting players');
+      err.statusCode = 400;
+      err.code = 'ROOM_NOT_WAITING';
+      throw err;
+    }
+
+    if (room.hostId === playerId) {
+      const err = new Error('Cannot join your own room');
+      err.statusCode = 400;
+      err.code = 'CANNOT_JOIN_OWN_ROOM';
+      throw err;
+    }
+
+    room.guestId = playerId;
+    room.guestName = playerName;
+    room.status = 'ready';
+    room.updatedAt = new Date().toISOString();
+    return room;
+  }
+
+  leaveRoom(code, playerId) {
+    const room = this.getRoom(code);
+    if (!room) {
+      const err = new Error('Room not found');
+      err.statusCode = 404;
+      err.code = 'ROOM_NOT_FOUND';
+      throw err;
+    }
+
+    if (room.hostId === playerId) {
+      this.rooms.delete(code.toUpperCase());
+    } else if (room.guestId === playerId) {
+      room.guestId = null;
+      room.guestName = null;
+      room.status = 'waiting';
+      room.updatedAt = new Date().toISOString();
+    }
+    return true;
+  }
+
+  startRoom(code) {
+    const room = this.getRoom(code);
+    if (!room) {
+      const err = new Error('Room not found');
+      err.statusCode = 404;
+      err.code = 'ROOM_NOT_FOUND';
+      throw err;
+    }
+
+    if (room.status !== 'ready') {
+      const err = new Error('Room is not ready. Both players must join first.');
+      err.statusCode = 400;
+      err.code = 'ROOM_NOT_READY';
+      throw err;
+    }
+
+    room.status = 'in_progress';
+    room.startedAt = new Date().toISOString();
+    room.updatedAt = new Date().toISOString();
+    return room;
+  }
+
+  // ============ PLAYERS ============
+
+  registerPlayer({ id, name, rating = 1500 }) {
+    if (!id || !name) {
+      const err = new Error('Player ID and name are required');
+      err.statusCode = 400;
+      err.code = 'VALIDATION_ERROR';
+      throw err;
+    }
+
+    const existing = this.players.get(id);
+    const player = {
+      id,
+      name,
+      rating: existing?.rating ?? rating,
+      wins: existing?.wins ?? 0,
+      losses: existing?.losses ?? 0,
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      lastSeen: new Date().toISOString()
+    };
+
+    this.players.set(id, player);
+    return player;
+  }
+
+  getPlayer(id) {
+    return this.players.get(id) || null;
+  }
+
+  // ============ MATCH PROGRESS ============
+
+  updateMatchProgress(matchId, playerId, questionIndex, time) {
+    const match = this.getMatch(matchId);
+    if (!match) {
+      const err = new Error('Match not found');
+      err.statusCode = 404;
+      err.code = 'MATCH_NOT_FOUND';
+      throw err;
+    }
+
+    let player = (match.players || []).find(p => (p.id === playerId || p.userId === playerId || p.userId?.toString() === playerId?.toString()));
+    if (!player) {
+      player = { id: playerId, userId: playerId, solved: [], totalTime: 0 };
+      if (!match.players) match.players = [];
+      match.players.push(player);
+    }
+
+    if (!player.solved) player.solved = [];
+    if (!player.solved.includes(questionIndex)) {
+      player.solved.push(questionIndex);
+    }
+    player.totalTime = time;
+    match.updatedAt = new Date().toISOString();
+    return match;
   }
 }
 

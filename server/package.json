@@ -6,6 +6,7 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "seed": "node src/scripts/seed.js",
+    "test": "node src/scripts/testBackend.js && node src/scripts/testFrontendCompatibility.js && node src/scripts/testFullBackendSuite.js",
     "vercel": "vercel",
     "vercel-deploy": "vercel --prod"
   },
