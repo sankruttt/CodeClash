@@ -2,62 +2,11 @@ import { isMongoConnected } from '../config/database.js';
 import Submission from '../models/Submission.js';
 import Match from '../models/Match.js';
 import { inMemoryStore } from './inMemoryStore.js';
+import { executeCode } from './compilerService.js';
 
-// ============== CODE JUDGE (MOCK) ==============
-// In production, this would call a code execution service like Judge0
-// For now, we simulate judging with simple heuristics
-
+// ============== CODE JUDGE ==============
 export async function judgeCode(code, language, testCases) {
-  // Mock code execution - replace with real judge integration
-  const startTime = Date.now();
-
-  // Simulate execution time
-  await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 200));
-
-  const executionTime = Date.now() - startTime;
-
-  // Simulate test results based on code content
-  // In reality, this would execute the code against test cases
-  const hasValidReturn = /return|console\.log|print/.test(code);
-  const hasFunction = /function|def |=>|class/.test(code);
-
-  const safeTestCases = Array.isArray(testCases) ? testCases : [];
-
-  const testResults = safeTestCases.map((tc, i) => {
-    // Mock: 70% pass rate if code looks valid, otherwise failing
-    const passed = hasValidReturn && hasFunction && Math.random() > 0.3;
-    return {
-      testCaseId: tc.id || tc._id || `tc-${i}`,
-      passed,
-      input: tc.input || '',
-      expectedOutput: tc.expectedOutput || '',
-      actualOutput: passed ? (tc.expectedOutput || '') : 'Wrong output',
-      error: passed ? null : 'Output mismatch'
-    };
-  });
-
-  const passedTests = testResults.filter(r => r.passed).length;
-  const totalTests = testResults.length || 1;
-
-  let status = 'Wrong Answer';
-  if (passedTests === totalTests && totalTests > 0) {
-    status = 'Accepted';
-  } else if (!code.includes('return') && !code.includes('console.log')) {
-    status = 'Runtime Error';
-  } else if (executionTime > 5000) {
-    status = 'Timeout';
-  } else if (!hasFunction) {
-    status = 'Compilation Error';
-  }
-
-  return {
-    status,
-    passedTests,
-    totalTests,
-    executionTime,
-    testResults,
-    errorMessage: status !== 'Accepted' ? status : null
-  };
+  return await executeCode({ code, language, testCases });
 }
 
 // ============== SUBMIT CODE ==============

@@ -1,9 +1,10 @@
 import { submitCode, getSubmissionsByMatch } from '../services/submissionService.js';
+import { executeCode } from '../services/compilerService.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 
 export const submit = asyncHandler(async (req, res) => {
   const { matchId, problemId, code, language } = req.body;
-  const userId = req.user.id;
+  const userId = req.user?.id || req.body.playerId || 'guest_player';
 
   const result = await submitCode({ userId, matchId, problemId, code, language });
 
@@ -20,7 +21,7 @@ export const submit = asyncHandler(async (req, res) => {
 
 export const getMatchSubmissions = asyncHandler(async (req, res) => {
   const { matchId } = req.params;
-  const userId = req.user.id;
+  const userId = req.user?.id || req.query.playerId || 'guest_player';
 
   const submissions = await getSubmissionsByMatch(matchId, userId);
 
@@ -30,4 +31,23 @@ export const getMatchSubmissions = asyncHandler(async (req, res) => {
   });
 });
 
-export default { submit, getMatchSubmissions };
+export const run = asyncHandler(async (req, res) => {
+  const { code, language = 'javascript', stdin = '', testCases = [] } = req.body;
+
+  if (!code || typeof code !== 'string') {
+    return res.status(400).json({
+      success: false,
+      error: 'VALIDATION_ERROR',
+      message: 'Code cannot be empty'
+    });
+  }
+
+  const result = await executeCode({ code, language, stdin, testCases });
+
+  res.json({
+    success: true,
+    data: result
+  });
+});
+
+export default { submit, getMatchSubmissions, run };

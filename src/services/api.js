@@ -92,4 +92,19 @@ export const playerAPI = {
     apiRequest(`/players/${id}`),
 };
 
-export default { roomAPI, matchAPI, playerAPI };
+// Compiler & Execution APIs
+export const compilerAPI = {
+  runCode: (code, language = 'javascript', stdin = '', testCases = []) =>
+    apiRequest('/submissions/run', {
+      method: 'POST',
+      body: JSON.stringify({ code, language, stdin, testCases }),
+    }),
+
+  submitCode: (matchId, problemId, code, language = 'javascript', playerId) =>
+    apiRequest('/submissions', {
+      method: 'POST',
+      body: JSON.stringify({ matchId, problemId, code, language, playerId }),
+    }),
+};
+
+export default { roomAPI, matchAPI, playerAPI, compilerAPI };

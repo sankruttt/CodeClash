@@ -350,6 +350,31 @@ async function runExhaustiveSuite() {
   });
   logTest('Submissions', 'GET /api/submissions/match/:matchId returns submission records', matchSubs.status === 200 && Array.isArray(matchSubs.data?.data?.submissions));
 
+  // Run code directly (Run Tests / Compiler execution)
+  const runJs = await request('/api/submissions/run', {
+    method: 'POST',
+    body: {
+      code: 'function add(a, b) { return a + b; }\nconsole.log(add(2, 3));',
+      language: 'javascript'
+    }
+  });
+  logTest('Submissions', 'POST /api/submissions/run executes JS and returns output', runJs.status === 200 && runJs.data?.data?.output);
+
+  const runPy = await request('/api/submissions/run', {
+    method: 'POST',
+    body: {
+      code: 'def add(a, b):\n    return a + b\nprint(add(2, 3))',
+      language: 'python'
+    }
+  });
+  logTest('Submissions', 'POST /api/submissions/run executes Python and returns output', runPy.status === 200 && runPy.data?.data?.output);
+
+  const runEmpty = await request('/api/submissions/run', {
+    method: 'POST',
+    body: { code: '' }
+  });
+  logTest('Submissions', 'POST /api/submissions/run rejects empty code with 400', runEmpty.status === 400);
+
   // Frontend Scrimmage Match (Unauthenticated contract from api.js)
   console.log('\n--- 7b. Scrimmages & Match Completion ---');
   const scrimmageRes = await request('/api/matches/create', {
