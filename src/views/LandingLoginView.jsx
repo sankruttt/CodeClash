@@ -6,8 +6,8 @@ const STITCH_LOGO_URL =
   'https://lh3.googleusercontent.com/aida/AEtjO1VkaA6KQmBEfQfLHrYIjjR4oGKWIHp1_CurDV8dkUOLfm1wboPXJDDOmiO5_Q53SFKmerv3V5dASxAes2QZ-yTXXenCF6yKwyLIXHfUUPl8D8tSTN5le0QvrjWh8S6juas_AMrCR3zcvP88ujMW1j8OexMQ66cxqVtd5iNHn2TfzJFyMz6Y7pPsl3P16O_L7a-ZoUxxhgm52M3B-owITbZTNWjcuONl60VhdeU7hfHLiuFQ31CuCvkvAkk';
 
 export default function LandingLoginView({ navigate, onLoginSuccess }) {
-  const [email, setEmail] = useState('alex@codeclash.dev');
-  const [password, setPassword] = useState('password123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -177,11 +177,10 @@ export default function LandingLoginView({ navigate, onLoginSuccess }) {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className={`w-full py-3.5 px-6 rounded-lg font-extrabold text-sm tracking-wider uppercase flex items-center justify-center space-x-2 transition duration-150 shadow-md ${
-                    isLoading
+                  className={`w-full py-3.5 px-6 rounded-lg font-extrabold text-sm tracking-wider uppercase flex items-center justify-center space-x-2 transition duration-150 shadow-md ${isLoading
                       ? 'bg-indigo-400 text-white cursor-not-allowed'
                       : 'bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white shadow-indigo-500/25 cursor-pointer'
-                  }`}
+                    }`}
                 >
                   <span>{isLoading ? 'AUTHENTICATING...' : 'ENTER THE ARENA'}</span>
                   <span className="text-base font-black">↗</span>
