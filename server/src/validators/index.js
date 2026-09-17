@@ -21,6 +21,23 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'Password is required')
 });
 
+export const updateProfileSchema = z.object({
+  name: z.string()
+    .trim()
+    .min(1, 'Name cannot be empty')
+    .max(50, 'Name cannot exceed 50 characters')
+    .optional(),
+  username: z.string()
+    .trim()
+    .min(3, 'Username must be at least 3 characters')
+    .max(30, 'Username cannot exceed 30 characters')
+    .regex(/^[a-zA-Z0-9_.-]+$/, 'Username can only contain letters, numbers, underscores, dashes, or dots')
+    .optional(),
+  primaryStack: z.enum(['C', 'C++', 'Java', 'JavaScript', 'Python']).optional()
+}).refine(data => data.name !== undefined || data.username !== undefined || data.primaryStack !== undefined, {
+  message: 'At least one of name, username, or primaryStack must be provided'
+});
+
 // ============== MATCH VALIDATORS ==============
 
 export const createMatchSchema = z.object({
@@ -118,4 +135,4 @@ export function validate(schema, source = 'body') {
   };
 }
 
-export default { validate, registerSchema, loginSchema, createMatchSchema, joinMatchSchema, submitCodeSchema, createProblemSchema };
+export default { validate, registerSchema, loginSchema, updateProfileSchema, createMatchSchema, joinMatchSchema, submitCodeSchema, createProblemSchema };

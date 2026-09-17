@@ -31,6 +31,23 @@ export const create = asyncHandler(async (req, res) => {
   });
 });
 
+export const updateSettings = asyncHandler(async (req, res) => {
+  const { code } = req.params;
+  const { difficulty, timeLimit, hostId } = req.body;
+
+  const room = await roomService.updateRoomSettings(code, {
+    difficulty,
+    timeLimit,
+    hostId: hostId || req.user?.id
+  });
+
+  res.json({
+    success: true,
+    room,
+    data: { room }
+  });
+});
+
 export const join = asyncHandler(async (req, res) => {
   const { roomCode, playerId, playerName } = req.body;
 
@@ -72,13 +89,27 @@ export const getRoom = asyncHandler(async (req, res) => {
 
 export const leave = asyncHandler(async (req, res) => {
   const { code } = req.params;
-  const { playerId } = req.body;
+  const playerId = req.body?.playerId || req.user?.id;
 
   await roomService.leaveRoomByCode(code, playerId);
 
   res.json({
     success: true,
     message: 'Left room successfully'
+  });
+});
+
+export const abandon = asyncHandler(async (req, res) => {
+  const { code } = req.params;
+  const playerId = req.body?.playerId || req.user?.id;
+
+  const room = await roomService.abandonRoomByCode(code, playerId);
+
+  res.json({
+    success: true,
+    message: 'Match abandoned',
+    room,
+    data: { room }
   });
 });
 
@@ -97,8 +128,10 @@ export const start = asyncHandler(async (req, res) => {
 
 export default {
   create,
+  updateSettings,
   join,
   getRoom,
   leave,
+  abandon,
   start
 };

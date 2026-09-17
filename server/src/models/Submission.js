@@ -2,8 +2,7 @@ import mongoose from 'mongoose';
 
 const submissionSchema = new mongoose.Schema({
   userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    type: mongoose.Schema.Types.Mixed,
     required: true
   },
   matchId: {
@@ -22,7 +21,7 @@ const submissionSchema = new mongoose.Schema({
   },
   language: {
     type: String,
-    enum: ['javascript', 'python', 'typescript', 'java', 'c', 'cpp', 'c++'],
+    enum: ['c', 'cpp', 'java', 'javascript', 'python'],
     required: true
   },
   status: {

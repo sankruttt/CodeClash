@@ -4,8 +4,8 @@ import { authAPI } from '../services/api';
 export default function StreakCard({ currentUser }) {
   const [streakData, setStreakData] = useState(() => {
     // Initial optimistic state from currentUser
-    const streak = currentUser?.streak ?? 0;
-    const longestStreak = currentUser?.longestStreak ?? currentUser?.bestStreak ?? streak;
+    const streak = Math.max(0, currentUser?.streak ?? 0);
+    const longestStreak = Math.max(0, currentUser?.longestStreak ?? currentUser?.bestStreak ?? streak);
     const todayCompleted = Boolean(currentUser?.todayCompleted);
     return {
       streak,
@@ -25,8 +25,8 @@ export default function StreakCard({ currentUser }) {
         const data = res?.data || res;
         if (!isCancelled && data && typeof data.streak === 'number') {
           setStreakData({
-            streak: data.streak,
-            longestStreak: data.longestStreak ?? data.streak,
+            streak: Math.max(0, data.streak),
+            longestStreak: Math.max(0, data.longestStreak ?? data.streak),
             todayCompleted: Boolean(data.todayCompleted),
             weeklyIndicators: data.weeklyIndicators || null
           });
@@ -63,8 +63,8 @@ export default function StreakCard({ currentUser }) {
     return result;
   })();
 
-  const currentStreak = streakData.streak ?? currentUser?.streak ?? 0;
-  const longestStreak = streakData.longestStreak ?? currentUser?.longestStreak ?? currentUser?.bestStreak ?? currentStreak;
+  const currentStreak = Math.max(0, streakData.streak ?? currentUser?.streak ?? 0);
+  const longestStreak = Math.max(0, streakData.longestStreak ?? currentUser?.longestStreak ?? currentUser?.bestStreak ?? currentStreak);
   const todayCompleted = streakData.todayCompleted ?? currentUser?.todayCompleted ?? false;
 
   return (

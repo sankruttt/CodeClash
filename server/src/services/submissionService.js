@@ -1,210 +1,206 @@
-import { isMongoConnected } from '../config/database.js';
+import mongoose from 'mongoose';
 import Submission from '../models/Submission.js';
 import Match from '../models/Match.js';
-import { inMemoryStore } from './inMemoryStore.js';
+import Room from '../models/Room.js';
+import TestCase from '../models/TestCase.js';
+import CodingProblem from '../models/CodingProblem.js';
 import { executeCode } from './compilerService.js';
+import { normalizeLanguage } from '../config/languages.js';
 
 // ============== CODE JUDGE ==============
 export async function judgeCode(code, language, testCases) {
-  return await executeCode({ code, language, testCases });
+  const canonicalLang = normalizeLanguage(language);
+  return await executeCode({ code, language: canonicalLang, testCases });
 }
 
 // ============== SUBMIT CODE ==============
 
 export async function submitCode({ userId, matchId, problemId, code, language }) {
-  // Verify match exists and user is in it
-  let match;
-  if (isMongoConnected()) {
-    match = await Match.findById(matchId);
-  } else {
-    match = inMemoryStore.getMatch(matchId);
-  }
-
-  if (!match) {
-    const err = new Error('Match not found');
-    err.statusCode = 404;
-    err.code = 'MATCH_NOT_FOUND';
+  if (!code || typeof code !== 'string') {
+    const err = new Error('Source code cannot be empty');
+    err.statusCode = 400;
+    err.code = 'VALIDATION_ERROR';
     throw err;
   }
 
-  // Verify user is in this match
-  const playerIndex = match.players.findIndex(p =>
-    p.userId.toString() === userId.toString()
+  const canonicalLang = normalizeLanguage(language);
+
+  // Validate problem exists
+  let problem = null;
+  if (mongoose.Types.ObjectId.isValid(problemId)) {
+    problem = await CodingProblem.findById(problemId);
+  }
+  if (!problem) {
+    problem = await CodingProblem.findOne({ title: problemId });
+  }
+
+  const validProblemId = problem ? problem._id : problemId;
+
+  // Retrieve match from MongoDB
+  let match = null;
+  const cleanCode = String(matchId || '').replace(/^room_/i, '').toUpperCase();
+
+  if (matchId) {
+    if (mongoose.Types.ObjectId.isValid(matchId)) {
+      match = await Match.findById(matchId);
+    }
+    if (!match && cleanCode) {
+      match = await Match.findOne({ roomCode: cleanCode });
+    }
+    if (!match && cleanCode) {
+      const room = await Room.findOne({ code: cleanCode });
+      if (room && room.matchId) {
+        match = await Match.findById(room.matchId);
+      }
+    }
+  }
+
+  // If no match found in MongoDB, persist new Match document with unique roomCode
+  if (!match) {
+    const generatedCode = cleanCode && cleanCode.length <= 15
+      ? cleanCode
+      : `M${Date.now().toString(36).toUpperCase()}`;
+
+    match = await Match.findOne({ roomCode: generatedCode });
+    if (!match) {
+      match = new Match({
+        roomCode: generatedCode,
+        type: 'casual',
+        status: 'ACTIVE',
+        problems: validProblemId ? [validProblemId] : [],
+        players: [
+          {
+            userId: userId,
+            username: 'Combatant',
+            status: 'ACTIVE'
+          }
+        ]
+      });
+      await match.save();
+    }
+  }
+
+  if (match.status === 'ABANDONED') {
+    const err = new Error('Match has been abandoned and is no longer active');
+    err.statusCode = 400;
+    err.code = 'MATCH_ABANDONED';
+    throw err;
+  }
+
+  if (match.status !== 'ACTIVE' && match.status !== 'in_progress') {
+    match.status = 'ACTIVE';
+    await match.save();
+  }
+
+  // Find or register player in match
+  let playerIndex = match.players.findIndex(
+    (p) => p.userId && String(p.userId) === String(userId)
   );
 
   if (playerIndex === -1) {
-    const err = new Error('Not a participant in this match');
-    err.statusCode = 403;
-    err.code = 'NOT_PARTICIPANT';
-    throw err;
+    match.players.push({
+      userId,
+      username: 'Combatant',
+      status: 'ACTIVE'
+    });
+    playerIndex = match.players.length - 1;
+    await match.save();
   }
 
-  if (match.status !== 'ACTIVE') {
-    const err = new Error('Match is not active');
-    err.statusCode = 400;
-    err.code = 'MATCH_NOT_ACTIVE';
-    throw err;
+  // Retrieve test cases from MongoDB
+  let testCases = await TestCase.find({ problemId: validProblemId }).sort({ order: 1 });
+
+  // If no separate test cases, use problem examples
+  if ((!testCases || testCases.length === 0) && problem?.examples?.length > 0) {
+    testCases = problem.examples.map((ex, idx) => ({
+      id: `ex-${idx + 1}`,
+      input: ex.input,
+      expectedOutput: ex.output
+    }));
   }
 
-  // Get problem test cases from database or in-memory store
-  let testCases;
-  if (isMongoConnected()) {
-    const TestCase = (await import('../models/TestCase.js')).default;
-    testCases = await TestCase.find({ problemId }).sort({ order: 1 });
-    if (!testCases || testCases.length === 0) {
-      // Fallback to sample test cases if no DB test cases exist
-      testCases = [
-        { id: '1', input: 'test1', expectedOutput: 'output1' },
-        { id: '2', input: 'test2', expectedOutput: 'output2' },
-        { id: '3', input: 'test3', expectedOutput: 'output3' }
-      ];
-    }
-  } else {
-    const TestCase = (await import('../models/TestCase.js')).default;
-    try {
-      testCases = await TestCase.find({ problemId }).sort({ order: 1 });
-    } catch {
-      testCases = [
-        { id: '1', input: 'test1', expectedOutput: 'output1' },
-        { id: '2', input: 'test2', expectedOutput: 'output2' },
-        { id: '3', input: 'test3', expectedOutput: 'output3' }
-      ];
-    }
-  }
+  // Judge code against test cases
+  const result = await judgeCode(code, canonicalLang, testCases);
 
-  // Judge the code
-  const result = await judgeCode(code, language, testCases);
-
-  // Calculate time from match start
   const timeFromStart = match.startedAt
     ? Math.floor((Date.now() - new Date(match.startedAt).getTime()) / 1000)
     : 0;
 
-  // Save submission
-  let submission;
-  if (isMongoConnected()) {
-    submission = new Submission({
-      userId,
-      matchId,
-      problemId,
-      code,
-      language,
-      status: result.status,
-      passedTests: result.passedTests,
-      totalTests: result.totalTests,
-      executionTime: result.executionTime,
-      testResults: result.testResults,
-      errorMessage: result.errorMessage,
-      timeFromStart
-    });
-    await submission.save();
-  } else {
-    submission = inMemoryStore.createSubmission({
-      userId,
-      matchId,
-      problemId,
-      code,
-      language,
-      status: result.status,
-      passedTests: result.passedTests,
-      totalTests: result.totalTests,
-      executionTime: result.executionTime,
-      testResults: result.testResults,
-      errorMessage: result.errorMessage,
-      timeFromStart
-    });
-  }
+  // Persist submission to MongoDB
+  const submission = new Submission({
+    userId: userId || 'guest_user',
+    matchId: match._id,
+    problemId: validProblemId,
+    code,
+    language: canonicalLang,
+    status: result.status,
+    passedTests: result.passedTests,
+    totalTests: result.totalTests,
+    executionTime: result.executionTime,
+    testResults: result.testResults,
+    errorMessage: result.error,
+    timeFromStart
+  });
 
-  // Update player progress if Accepted
-  if (result.status === 'Accepted' && result.passedTests === result.totalTests) {
+  await submission.save();
+
+  // Update match player progress if participant found
+  if (playerIndex !== -1) {
     const player = match.players[playerIndex];
+    player.submissions = (player.submissions || 0) + 1;
 
-    // Check if problem already solved
-    const problemResults = player.problemResults || [];
-    const alreadySolved = problemResults.some(pr =>
-      pr.problemId.toString() === problemId.toString() && pr.solved
-    );
-
-    if (!alreadySolved) {
-      const newResult = {
-        problemId,
-        solved: true,
-        time: timeFromStart,
-        attempts: 1,
-        score: 100
-      };
-
-      problemResults.push(newResult);
-
-      player.problemResults = problemResults;
-      player.problemsSolved = problemResults.filter(pr => pr.solved).length;
-      player.submissions = (player.submissions || 0) + 1;
-
-      // Calculate total time (sum of all solved problem times)
-      player.totalTime = problemResults
-        .filter(pr => pr.solved)
-        .reduce((sum, pr) => sum + pr.time, 0);
-    } else {
-      // Update attempts but don't add new solve
-      const pr = problemResults.find(p => p.problemId.toString() === problemId.toString());
-      if (pr) pr.attempts = (pr.attempts || 0) + 1;
-    }
-
-    // Save match atomically
-    if (isMongoConnected()) {
-      const updateOps = {
-        $set: {
-          [`players.${playerIndex}.problemsSolved`]: player.problemsSolved,
-          [`players.${playerIndex}.totalTime`]: player.totalTime,
-          [`players.${playerIndex}.submissions`]: player.submissions,
-          [`players.${playerIndex}.problemResults`]: player.problemResults
-        }
-      };
-      await Match.findOneAndUpdate({ _id: match._id }, updateOps);
-    } else {
-      // In-memory: save the mutated match object
-      inMemoryStore.updateMatch(match.id || match._id, match);
-    }
-  } else {
-    // Just increment submissions count
-    match.players[playerIndex].submissions =
-      (match.players[playerIndex].submissions || 0) + 1;
-
-    if (isMongoConnected()) {
-      await Match.findOneAndUpdate(
-        { _id: match._id },
-        { $set: { [`players.${playerIndex}.submissions`]: match.players[playerIndex].submissions } }
+    if (result.status === 'Accepted' && result.passedTests === result.totalTests) {
+      player.problemResults = player.problemResults || [];
+      const alreadySolved = player.problemResults.some(
+        (pr) => pr.problemId && pr.problemId.toString() === validProblemId.toString() && pr.solved
       );
-    } else {
-      inMemoryStore.updateMatch(match.id || match._id, match);
+
+      if (!alreadySolved) {
+        player.problemResults.push({
+          problemId: validProblemId,
+          solved: true,
+          time: timeFromStart,
+          attempts: 1,
+          score: 100
+        });
+
+        player.problemsSolved = player.problemResults.filter((pr) => pr.solved).length;
+        player.totalTime = player.problemResults
+          .filter((pr) => pr.solved)
+          .reduce((sum, pr) => sum + pr.time, 0);
+      }
     }
+
+    await match.save();
   }
 
   return {
     submission: {
-      id: submission._id || submission.id,
+      id: submission._id,
       status: result.status,
       passedTests: result.passedTests,
       totalTests: result.totalTests,
       executionTime: result.executionTime,
       testResults: result.testResults,
-      errorMessage: result.errorMessage
+      errorMessage: result.error
     },
-    matchProgress: {
-      problemsSolved: match.players[playerIndex].problemsSolved,
-      totalTime: match.players[playerIndex].totalTime
-    }
+    matchProgress: playerIndex !== -1 ? {
+      problemsSolved: match.players[playerIndex].problemsSolved || 0,
+      totalTime: match.players[playerIndex].totalTime || 0
+    } : null
   };
 }
 
 export async function getSubmissionsByMatch(matchId, userId) {
-  if (isMongoConnected()) {
-    return await Submission.find({ matchId, userId }).sort({ createdAt: -1 });
-  } else {
-    return inMemoryStore.getSubmissionsByMatch(matchId)
-      .filter(s => s.userId === userId)
-      .sort((a, b) => b.createdAt - a.createdAt);
+  const query = {};
+  if (mongoose.Types.ObjectId.isValid(matchId)) {
+    query.matchId = matchId;
   }
+  if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+    query.userId = userId;
+  }
+
+  return await Submission.find(query).sort({ createdAt: -1 });
 }
 
 export default { submitCode, getSubmissionsByMatch, judgeCode };

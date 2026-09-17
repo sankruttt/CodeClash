@@ -99,6 +99,12 @@ export const authAPI = {
 
   getMe: () => apiRequest('/auth/me'),
 
+  updateProfile: ({ name, username, primaryStack }) =>
+    apiRequest('/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify({ name, username, primaryStack }),
+    }),
+
   getStreak: () => apiRequest('/auth/streak'),
 };
 
@@ -130,6 +136,18 @@ export const roomAPI = {
       method: 'POST',
       body: JSON.stringify({ userId }),
     }),
+
+  updateSettings: (code, { difficulty, timeLimit, duration }) =>
+    apiRequest(`/rooms/${code}/settings`, {
+      method: 'PUT',
+      body: JSON.stringify({ difficulty, timeLimit, duration }),
+    }),
+
+  abandonRoom: (code, playerId) =>
+    apiRequest(`/rooms/${code}/abandon`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId }),
+    }),
 };
 
 // ============== MATCH APIs ==============
@@ -156,6 +174,12 @@ export const matchAPI = {
     apiRequest(`/matches/${matchId}/complete`, {
       method: 'POST',
       body: JSON.stringify({ winner, scores }),
+    }),
+
+  abandonMatch: (matchId, playerId) =>
+    apiRequest(`/matches/${matchId}/abandon`, {
+      method: 'POST',
+      body: JSON.stringify({ playerId }),
     }),
 
   getMatch: (id) =>
@@ -195,8 +219,19 @@ export const problemAPI = {
 
 // ============== LEADERBOARD & STATS APIs ==============
 export const leaderboardAPI = {
-  getLeaderboard: ({ sortBy = 'rating', limit = 100 } = {}) =>
-    apiRequest(`/leaderboard?sortBy=${sortBy}&limit=${limit}`),
+  getLeaderboard: ({ page = 1, limit = 20, sortBy = 'rating', stack = '', search = '' } = {}) => {
+    let url = `/leaderboard?page=${page}&limit=${limit}&sortBy=${sortBy}`;
+    if (stack && stack !== 'All Stacks') url += `&stack=${encodeURIComponent(stack)}`;
+    if (search && search.trim()) url += `&search=${encodeURIComponent(search.trim())}`;
+    return apiRequest(url);
+  },
+
+  getMeRank: () => {
+    if (!getAuthToken()) {
+      return Promise.resolve({ success: false, data: null });
+    }
+    return apiRequest('/leaderboard/me');
+  },
 
   getUserRank: (userId) => {
     if (!userId || String(userId).startsWith('user_')) {

@@ -147,7 +147,7 @@ async function seed() {
   await connectDatabase();
 
   if (!isMongoConnected()) {
-    console.log('⚠️  MongoDB not available. Cannot seed. (In-memory store still has its default problems.)');
+    console.error('❌ MongoDB not available. Cannot seed problems.');
     process.exit(1);
   }
 

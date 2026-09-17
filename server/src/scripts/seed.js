@@ -77,8 +77,8 @@ async function seed() {
   await connectDatabase();
   
   if (!isMongoConnected()) {
-    console.log('⚠️  MongoDB not available. Skipping seed (in-memory store is pre-populated).');
-    process.exit(0);
+    console.error('❌ MongoDB not available. Cannot seed.');
+    process.exit(1);
   }
   
   try {

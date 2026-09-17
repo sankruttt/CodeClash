@@ -10,6 +10,14 @@ const userSchema = new mongoose.Schema({
     minlength: 3,
     maxlength: 30
   },
+  name: {
+    type: String,
+    trim: true,
+    maxlength: 50,
+    default: function() {
+      return this.username;
+    }
+  },
   email: {
     type: String,
     required: true,
@@ -54,15 +62,23 @@ const userSchema = new mongoose.Schema({
   },
   streak: {
     type: Number,
-    default: 0
+    default: 0,
+    min: 0
   },
   bestStreak: {
     type: Number,
-    default: 0
+    default: 0,
+    min: 0
   },
   longestStreak: {
     type: Number,
-    default: 0
+    default: 0,
+    min: 0
+  },
+  primaryStack: {
+    type: String,
+    enum: ['C', 'C++', 'Java', 'JavaScript', 'Python'],
+    default: 'Python'
   },
   lastActivityDate: {
     type: Date,
@@ -82,6 +98,9 @@ const userSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+userSchema.index({ rating: -1, _id: 1 });
+userSchema.index({ wins: -1, _id: 1 });
 
 // Hash password before saving (async/await style for Mongoose 9)
 userSchema.pre('save', async function () {
@@ -104,6 +123,7 @@ userSchema.methods.toPublicJSON = function () {
 
   return {
     id: this._id,
+    name: this.name || this.username,
     username: this.username,
     email: this.email,
     avatar: this.avatar,
@@ -116,6 +136,8 @@ userSchema.methods.toPublicJSON = function () {
     streak: this.streak || 0,
     bestStreak: this.longestStreak || this.bestStreak || 0,
     longestStreak: this.longestStreak || this.bestStreak || 0,
+    primaryStack: this.primaryStack || 'Python',
+    stack: this.primaryStack || 'Python',
     lastActivityDate: this.lastActivityDate || null,
     activityHistory: this.activityHistory || [],
     todayCompleted

@@ -25,5 +25,6 @@ router.get('/:id', optionalAuth, matchController.getMatch);
 router.post('/:id/start', optionalAuth, matchController.startBattle);
 router.post('/:id/progress', optionalAuth, matchController.updateProgress);
 router.post('/:id/complete', optionalAuth, matchController.completeBattle);
+router.post('/:id/abandon', optionalAuth, matchController.abandonBattle);
 
 export default router;

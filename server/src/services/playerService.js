@@ -1,6 +1,4 @@
-import { isMongoConnected } from '../config/database.js';
 import Player from '../models/Player.js';
-import { inMemoryStore } from './inMemoryStore.js';
 
 export async function registerPlayer({ id, name, rating = 1500 }) {
   if (!id || !name) {
@@ -10,30 +8,23 @@ export async function registerPlayer({ id, name, rating = 1500 }) {
     throw err;
   }
 
-  if (isMongoConnected()) {
-    const player = await Player.findOneAndUpdate(
-      { playerId: id },
-      {
-        $set: { name, rating, lastSeen: new Date() },
-        $setOnInsert: { wins: 0, losses: 0 }
-      },
-      { returnDocument: 'after', upsert: true }
-    );
-    return player.toJSON ? player.toJSON() : player;
-  }
+  const player = await Player.findOneAndUpdate(
+    { playerId: id },
+    {
+      $set: { name, rating, lastSeen: new Date() },
+      $setOnInsert: { wins: 0, losses: 0 }
+    },
+    { returnDocument: 'after', upsert: true }
+  );
 
-  return inMemoryStore.registerPlayer({ id, name, rating });
+  return player.toJSON ? player.toJSON() : player;
 }
 
 export async function getPlayerById(id) {
   if (!id) return null;
 
-  if (isMongoConnected()) {
-    const player = await Player.findOne({ playerId: id });
-    return player ? (player.toJSON ? player.toJSON() : player) : null;
-  }
-
-  return inMemoryStore.getPlayer(id);
+  const player = await Player.findOne({ playerId: id });
+  return player ? (player.toJSON ? player.toJSON() : player) : null;
 }
 
 export default {

@@ -1,4 +1,4 @@
-import { registerUser, loginUser, getUserById } from '../services/authService.js';
+import { registerUser, loginUser, getUserById, updateUserProfile } from '../services/authService.js';
 import { getUserStreak } from '../services/streakService.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 
@@ -56,6 +56,27 @@ export const getProfile = asyncHandler(async (req, res) => {
   });
 });
 
+export const updateProfile = asyncHandler(async (req, res) => {
+  const userId = req.user?.id;
+  if (!userId) {
+    return res.status(401).json({
+      success: false,
+      error: 'UNAUTHORIZED',
+      message: 'Authentication required'
+    });
+  }
+
+  const { name, username, primaryStack } = req.body;
+
+  const result = await updateUserProfile(userId, { name, username, primaryStack });
+
+  res.json({
+    success: true,
+    message: 'Profile updated successfully',
+    data: result
+  });
+});
+
 export const getStreak = asyncHandler(async (req, res) => {
   const streak = await getUserStreak(req.user.id);
 
@@ -73,4 +94,4 @@ export const getStreak = asyncHandler(async (req, res) => {
   });
 });
 
-export default { register, login, getProfile, getStreak };
+export default { register, login, getProfile, updateProfile, getStreak };

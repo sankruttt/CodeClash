@@ -5,6 +5,7 @@ import { authMiddleware, optionalAuth } from '../middleware/auth.js';
 const router = Router();
 
 router.get('/', optionalAuth, leaderboardController.getLeaderboard);
+router.get('/me', authMiddleware, leaderboardController.getMyRankController);
 router.get('/history/me', authMiddleware, leaderboardController.getHistory);
 router.get('/rank/:userId', optionalAuth, leaderboardController.getUserRankController);
 

@@ -1,99 +1,81 @@
-import { isMongoConnected } from '../config/database.js';
 import Match from '../models/Match.js';
-import { inMemoryStore } from './inMemoryStore.js';
 import { createPrivateMatch, joinMatch } from './matchService.js';
 
-// ============== MATCHMAKING QUEUE ==============
+// Transient queue for active in-flight matchmaking requests
+const matchmakingQueue = [];
 
 export async function joinQueue(userId) {
-  if (isMongoConnected()) {
-    // Check if user is already in a match
-    const activeMatch = await Match.findOne({
-      'players.userId': userId,
-      status: { $in: ['WAITING', 'MATCHED', 'ACTIVE'] }
-    });
-    
-    if (activeMatch) {
-      const err = new Error('Player is already in a match');
-      err.statusCode = 409;
-      err.code = 'IN_MATCH';
-      throw err;
-    }
-    
-    // Add to queue via in-memory tracking (for speed)
-    return inMemoryStore.addToQueue(userId);
-  } else {
-    return inMemoryStore.addToQueue(userId);
+  // Check if user is already in an active match in MongoDB
+  const activeMatch = await Match.findOne({
+    'players.userId': userId,
+    status: { $in: ['WAITING', 'MATCHED', 'ACTIVE'] }
+  });
+
+  if (activeMatch) {
+    const err = new Error('Player is already in an active match');
+    err.statusCode = 409;
+    err.code = 'IN_MATCH';
+    throw err;
   }
+
+  const existingIdx = matchmakingQueue.findIndex((item) => String(item.userId) === String(userId));
+  if (existingIdx === -1) {
+    matchmakingQueue.push({ userId, timestamp: new Date() });
+  }
+
+  return {
+    inQueue: true,
+    position: matchmakingQueue.length
+  };
 }
 
 export async function leaveQueue(userId) {
-  if (isMongoConnected()) {
-    // In a real system with persistent queue, remove from queue collection
-    return inMemoryStore.removeFromQueue(userId);
-  } else {
-    return inMemoryStore.removeFromQueue(userId);
+  const index = matchmakingQueue.findIndex((item) => String(item.userId) === String(userId));
+  if (index !== -1) {
+    matchmakingQueue.splice(index, 1);
+    return true;
   }
+  return false;
 }
 
 export async function findMatch(userId) {
-  // Opponent search only — joinQueue already placed this user in the queue
-  const opponent = inMemoryStore.findOpponent(userId);
-  
-  if (!opponent) {
+  const opponentIdx = matchmakingQueue.findIndex((item) => String(item.userId) !== String(userId));
+  if (opponentIdx === -1) {
     return null;
   }
-  
-  // Atomically remove both from queue to prevent double-matching
-  const removedSelf = inMemoryStore.removeFromQueue(userId);
-  const removedOpponent = inMemoryStore.removeFromQueue(opponent.userId);
-  
-  // If either removal failed, another request already matched them
-  if (!removedSelf || !removedOpponent) {
-    return null;
-  }
-  
-  // Create a match between them
+
+  const opponent = matchmakingQueue[opponentIdx];
+
+  // Remove both from transient queue
+  leaveQueue(userId);
+  leaveQueue(opponent.userId);
+
+  // Create real match in MongoDB
   let match = await createPrivateMatch(userId, 'ranked');
-  
-  if (match.players.every(p => p.userId.toString() !== opponent.userId.toString())) {
+  if (match.players.every((p) => String(p.userId) !== String(opponent.userId))) {
     match = await joinMatch(match.roomCode, opponent.userId);
   } else {
     match.status = 'MATCHED';
-    if (isMongoConnected()) {
-      await match.save();
-    }
+    await match.save();
   }
-  
+
   return match;
 }
 
 export async function getQueueStatus(userId) {
-  if (isMongoConnected()) {
-    const position = inMemoryStore.getQueuePosition(userId);
-    const isInQueue = position > -1;
-    
-    if (!isInQueue) {
-      return { inQueue: false, position: 0, estimatedWait: 0 };
-    }
-    
-    const queueLength = inMemoryStore.matchmakingQueue.length;
-    
-    return {
-      inQueue: true,
-      position,
-      queueLength,
-      estimatedWait: position * 5  // 5 sec per player estimate
-    };
-  } else {
-    const position = inMemoryStore.getQueuePosition(userId);
-    return {
-      inQueue: position > -1,
-      position: Math.max(0, position),
-      queueLength: inMemoryStore.matchmakingQueue.length,
-      estimatedWait: Math.max(0, position) * 5
-    };
+  const position = matchmakingQueue.findIndex((item) => String(item.userId) === String(userId));
+  const isInQueue = position > -1;
+
+  if (!isInQueue) {
+    return { inQueue: false, position: 0, estimatedWait: 0 };
   }
+
+  return {
+    inQueue: true,
+    position: position + 1,
+    queueLength: matchmakingQueue.length,
+    estimatedWait: (position + 1) * 5
+  };
 }
 
 export default { joinQueue, leaveQueue, findMatch, getQueueStatus };

@@ -15,6 +15,7 @@ import {
   problemAPI,
   matchmakingAPI,
   matchAPI,
+  roomAPI,
   getAuthToken,
   setAuthToken,
   clearAuthToken,
@@ -170,7 +171,8 @@ export default function App() {
           const tierDetails = getTierDetails(u.rating || 1500, u.tier);
           const combatant = {
             id: u._id || u.id,
-            name: u.username || u.name,
+            name: u.name || u.username,
+            username: u.username,
             handle: `@${u.username}`,
             avatar: u.avatar || (u.username ? u.username.slice(0, 2).toUpperCase() : 'KV'),
             color: u.color || 'indigo',
@@ -178,12 +180,14 @@ export default function App() {
             tier: tierDetails.currentTier,
             wins: u.wins || 0,
             losses: u.losses || 0,
-            streak: u.streak || 0,
-            longestStreak: u.longestStreak || u.bestStreak || u.streak || 0,
+            streak: Math.max(0, u.streak || 0),
+            longestStreak: Math.max(0, u.longestStreak || u.bestStreak || u.streak || 0),
             todayCompleted: u.todayCompleted || false,
             lastActivityDate: u.lastActivityDate || null,
             activityHistory: u.activityHistory || [],
             weeklyIndicators: u.weeklyIndicators || null,
+            primaryStack: u.primaryStack || u.stack || 'Python',
+            stack: u.primaryStack || u.stack || 'Python',
             email: u.email,
           };
           setCurrentUser(combatant);
@@ -294,7 +298,8 @@ export default function App() {
   // Start match from Private Room
   const handleStartPrivateBattle = (roomConfig) => {
     const match = {
-      id: 'room_' + (roomConfig?.roomCode || 'CD-8492'),
+      id: roomConfig?.matchId || roomConfig?.roomCode || 'CD-8492',
+      matchId: roomConfig?.matchId,
       roomCode: roomConfig?.roomCode,
       type: 'Private Scrimmage',
       opponent: roomConfig?.opponent || 'v0_Sniper',
@@ -302,6 +307,8 @@ export default function App() {
       opponentAvatar: roomConfig?.opponentAvatar || 'VS',
       difficulty: roomConfig?.difficulty || 'Medium',
       timeLimit: roomConfig?.timeLimit || '15:00',
+      duration: roomConfig?.duration || 900,
+      startedAt: roomConfig?.startedAt || new Date().toISOString(),
       problem: roomConfig?.problem || 'Binary Search',
       problemData: roomConfig?.problemData,
     };
@@ -316,30 +323,57 @@ export default function App() {
     setConfirmExitModal(true);
   };
 
-  // Confirm exit: Deduct LP penalty, record defeat, reset streak, and exit match
-  const handleConfirmExit = () => {
-    const penalty = 24;
-    const currentRating = currentUser?.rating ?? 1500;
-    const newRating = Math.max(0, currentRating - penalty);
-    if (currentUser) {
-      const tierDetails = getTierDetails(newRating);
-      const updated = {
-        ...currentUser,
-        rating: newRating,
-        tier: tierDetails.currentTier,
-        losses: (currentUser.losses || 0) + 1,
-        streak: 0,
-      };
-      setCurrentUser(updated);
-      sessionStorage.setItem('codeclash_user', JSON.stringify(updated));
+  // Confirm exit: Notify backend MongoDB of abandonment, deduct penalty, and exit match
+  const handleConfirmExit = async () => {
+    const roomCode = activeMatch?.roomCode;
+    const matchId = activeMatch?.matchId || activeMatch?.id;
+    const playerId = currentUser?.id || 'player';
+
+    try {
+      await Promise.allSettled([
+        roomCode ? roomAPI.abandonRoom(roomCode, playerId) : Promise.resolve(),
+        matchId ? matchAPI.abandonMatch(matchId, playerId) : Promise.resolve(),
+      ]);
+    } catch (err) {
+      console.warn('Abandonment report notice:', err);
     }
+
+    authAPI.getMe().then((res) => {
+      if (res?.data?.user) {
+        const u = res.data.user;
+        const tierDetails = getTierDetails(u.rating || 1500, u.tier);
+        const combatant = {
+          id: u._id || u.id,
+          name: u.username || u.name,
+          handle: `@${u.username}`,
+          avatar: u.avatar || (u.username ? u.username.slice(0, 2).toUpperCase() : 'KV'),
+          color: u.color || 'indigo',
+          rating: u.rating || 1500,
+          tier: tierDetails.currentTier,
+          wins: u.wins || 0,
+          losses: u.losses || 0,
+          streak: Math.max(0, u.streak || 0),
+          longestStreak: Math.max(0, u.longestStreak || u.bestStreak || u.streak || 0),
+          todayCompleted: u.todayCompleted || false,
+          lastActivityDate: u.lastActivityDate || null,
+          activityHistory: u.activityHistory || [],
+          weeklyIndicators: u.weeklyIndicators || null,
+          primaryStack: u.primaryStack || u.stack || 'Python',
+          stack: u.primaryStack || u.stack || 'Python',
+          email: u.email,
+        };
+        setCurrentUser(combatant);
+        sessionStorage.setItem('codeclash_user', JSON.stringify(combatant));
+      }
+    }).catch(console.warn);
+
     sessionStorage.removeItem('codeclash_active_match');
     setActiveMatch(null);
     setConfirmExitModal(false);
     const destination = pendingNavigationRoute || 'lobby';
     setPendingNavigationRoute(null);
     window.location.hash = destination;
-    setForfeitNotice(`Match Abandoned: -${penalty} LP penalty deducted for leaving midway.`);
+    setForfeitNotice('Match Abandoned.');
   };
 
   const handleCancelExit = () => {
@@ -361,7 +395,9 @@ export default function App() {
       tier: tierDetails.currentTier,
       wins: u.wins || 0,
       losses: u.losses || 0,
-      streak: u.streak || 0,
+      streak: Math.max(0, u.streak || 0),
+      primaryStack: u.primaryStack || u.stack || 'Python',
+      stack: u.primaryStack || u.stack || 'Python',
       email: u.email,
     };
     setCurrentUser(combatant);
@@ -383,13 +419,38 @@ export default function App() {
       tier: tierDetails.currentTier,
       wins: u.wins || 0,
       losses: u.losses || 0,
-      streak: u.streak || 0,
+      streak: Math.max(0, u.streak || 0),
+      primaryStack: u.primaryStack || u.stack || 'Python',
+      stack: u.primaryStack || u.stack || 'Python',
       email: email || u.email,
     };
     setCurrentUser(combatant);
     sessionStorage.setItem('codeclash_user', JSON.stringify(combatant));
     navigate('dashboard');
   };
+
+  const handleUpdateUser = useCallback((updatedUserData, newToken) => {
+    if (newToken) {
+      setAuthToken(newToken);
+    }
+    setCurrentUser((prev) => {
+      const tierDetails = getTierDetails(updatedUserData?.rating || prev?.rating || 1500, updatedUserData?.tier || prev?.tier);
+      const name = updatedUserData?.name || prev?.name || updatedUserData?.username || prev?.username;
+      const username = updatedUserData?.username || prev?.username;
+      const merged = {
+        ...prev,
+        ...updatedUserData,
+        id: updatedUserData?.id || updatedUserData?._id || prev?.id,
+        name,
+        username,
+        handle: username ? `@${username}` : prev?.handle,
+        avatar: updatedUserData?.avatar || (name || username ? (name || username).slice(0, 2).toUpperCase() : prev?.avatar || 'KV'),
+        tier: tierDetails.currentTier,
+      };
+      sessionStorage.setItem('codeclash_user', JSON.stringify(merged));
+      return merged;
+    });
+  }, []);
 
   const handleLogout = () => {
     clearAuthToken();
@@ -473,6 +534,7 @@ export default function App() {
           <ProfileView
             navigate={navigate}
             currentUser={currentUser}
+            onUpdateUser={handleUpdateUser}
           />
         )}
       </main>

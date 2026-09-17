@@ -2,9 +2,8 @@ import mongoose from 'mongoose';
 
 const playerResultSchema = new mongoose.Schema({
   userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+    type: mongoose.Schema.Types.Mixed,
+    required: false
   },
   username: String,
   avatar: String,
@@ -32,7 +31,6 @@ const matchSchema = new mongoose.Schema({
   roomCode: {
     type: String,
     required: true,
-    unique: true,
     uppercase: true
   },
   type: {
@@ -42,7 +40,7 @@ const matchSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['WAITING', 'MATCHED', 'ACTIVE', 'COMPLETED', 'CANCELLED'],
+    enum: ['WAITING', 'MATCHED', 'ACTIVE', 'COMPLETED', 'CANCELLED', 'ABANDONED'],
     default: 'WAITING'
   },
   players: [playerResultSchema],
@@ -50,14 +48,34 @@ const matchSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'CodingProblem'
   }],
+  difficulty: {
+    type: String,
+    enum: ['Easy', 'Medium', 'Hard'],
+    default: 'Medium'
+  },
+  timeLimit: {
+    type: String,
+    default: '15:00'
+  },
   winner: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    type: mongoose.Schema.Types.Mixed,
+    default: null
+  },
+  abandonedBy: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null
+  },
+  rewardsAwarded: {
+    type: Boolean,
+    default: false
+  },
+  rewardDetails: {
+    type: Object,
     default: null
   },
   result: {
     type: String,
-    enum: ['player1', 'player2', 'draw', 'cancelled'],
+    enum: ['player1', 'player2', 'draw', 'cancelled', 'abandoned'],
     default: null
   },
   startedAt: Date,
@@ -71,6 +89,7 @@ const matchSchema = new mongoose.Schema({
   timestamps: true
 });
 
+matchSchema.index({ roomCode: 1 });
 matchSchema.index({ status: 1, createdAt: -1 });
 matchSchema.index({ 'players.userId': 1 });
 

@@ -1,6 +1,4 @@
-import { isMongoConnected } from '../config/database.js';
 import User from '../models/User.js';
-import { inMemoryStore } from './inMemoryStore.js';
 
 /**
  * Returns YYYY-MM-DD in UTC
@@ -49,127 +47,75 @@ export function generateWeeklyIndicators(activityHistory = [], targetDate = new 
 }
 
 /**
- * Record qualifying activity for a user
+ * Record qualifying activity for a user in MongoDB
  */
 export async function recordUserActivity(userId, activityDate = new Date()) {
   if (!userId) return null;
 
   const todayKey = toDateKey(activityDate);
 
-  if (isMongoConnected()) {
-    const user = await User.findById(userId);
-    if (!user) return null;
+  const user = await User.findById(userId);
+  if (!user) return null;
 
-    let currentStreak = user.streak || 0;
-    let longestStreak = user.longestStreak || user.bestStreak || 0;
-    const history = Array.isArray(user.activityHistory) ? [...user.activityHistory] : [];
+  let currentStreak = Math.max(0, user.streak || 0);
+  let longestStreak = Math.max(0, user.longestStreak || user.bestStreak || 0);
+  const history = Array.isArray(user.activityHistory) ? [...user.activityHistory] : [];
 
-    if (!user.lastActivityDate) {
-      // First activity
-      currentStreak = 1;
-      longestStreak = Math.max(longestStreak, 1);
-    } else {
-      const diff = getDayDifference(user.lastActivityDate, activityDate);
-
-      if (diff === 0) {
-        // Same day activity: do not increment streak
-      } else if (diff === 1) {
-        // Consecutive day
-        currentStreak += 1;
-        longestStreak = Math.max(longestStreak, currentStreak);
-      } else if (diff > 1) {
-        // Missed one or more days: reset to 1
-        currentStreak = 1;
-        longestStreak = Math.max(longestStreak, 1);
-      }
-    }
-
-    if (!history.includes(todayKey)) {
-      history.push(todayKey);
-    }
-
-    user.streak = currentStreak;
-    user.longestStreak = longestStreak;
-    user.bestStreak = longestStreak;
-    user.lastActivityDate = activityDate;
-    user.activityHistory = history;
-
-    await user.save();
-
-    return {
-      streak: currentStreak,
-      longestStreak,
-      todayCompleted: true,
-      lastActivityDate: activityDate,
-      activityHistory: history,
-      weeklyIndicators: generateWeeklyIndicators(history, activityDate)
-    };
+  if (!user.lastActivityDate) {
+    // First activity
+    currentStreak = 1;
+    longestStreak = Math.max(longestStreak, 1);
   } else {
-    // In-memory fallback
-    const user = inMemoryStore.getUser(userId);
-    if (!user) return null;
+    const diff = getDayDifference(user.lastActivityDate, activityDate);
 
-    let currentStreak = user.streak || 0;
-    let longestStreak = user.longestStreak || user.bestStreak || 0;
-    const history = Array.isArray(user.activityHistory) ? [...user.activityHistory] : [];
-
-    if (!user.lastActivityDate) {
+    if (diff === 0) {
+      // Same day activity: do not increment streak
+      currentStreak = Math.max(1, currentStreak);
+    } else if (diff === 1) {
+      // Consecutive day
+      currentStreak += 1;
+      longestStreak = Math.max(longestStreak, currentStreak);
+    } else if (diff > 1) {
+      // Missed one or more days: reset to 1
       currentStreak = 1;
       longestStreak = Math.max(longestStreak, 1);
-    } else {
-      const diff = getDayDifference(user.lastActivityDate, activityDate);
-      if (diff === 0) {
-        // Same day
-      } else if (diff === 1) {
-        currentStreak += 1;
-        longestStreak = Math.max(longestStreak, currentStreak);
-      } else if (diff > 1) {
-        currentStreak = 1;
-        longestStreak = Math.max(longestStreak, 1);
-      }
     }
-
-    if (!history.includes(todayKey)) {
-      history.push(todayKey);
-    }
-
-    inMemoryStore.updateUser(userId, {
-      streak: currentStreak,
-      longestStreak,
-      bestStreak: longestStreak,
-      lastActivityDate: activityDate,
-      activityHistory: history
-    });
-
-    return {
-      streak: currentStreak,
-      longestStreak,
-      todayCompleted: true,
-      lastActivityDate: activityDate,
-      activityHistory: history,
-      weeklyIndicators: generateWeeklyIndicators(history, activityDate)
-    };
   }
+
+  if (!history.includes(todayKey)) {
+    history.push(todayKey);
+  }
+
+  user.streak = Math.max(0, currentStreak);
+  user.longestStreak = Math.max(0, longestStreak);
+  user.bestStreak = Math.max(0, longestStreak);
+  user.lastActivityDate = activityDate;
+  user.activityHistory = history;
+
+  await user.save();
+
+  return {
+    streak: Math.max(0, currentStreak),
+    longestStreak: Math.max(0, longestStreak),
+    todayCompleted: true,
+    lastActivityDate: activityDate,
+    activityHistory: history,
+    weeklyIndicators: generateWeeklyIndicators(history, activityDate)
+  };
 }
 
 /**
- * Get current streak status for a user
+ * Get current streak status for a user from MongoDB
  */
 export async function getUserStreak(userId, targetDate = new Date()) {
   if (!userId) return null;
 
-  let user = null;
-  if (isMongoConnected()) {
-    user = await User.findById(userId);
-  } else {
-    user = inMemoryStore.getUser(userId);
-  }
-
+  const user = await User.findById(userId);
   if (!user) return null;
 
   const history = Array.isArray(user.activityHistory) ? user.activityHistory : [];
-  const longestStreak = user.longestStreak || user.bestStreak || 0;
-  let streak = user.streak || 0;
+  const longestStreak = Math.max(0, user.longestStreak || user.bestStreak || 0);
+  let streak = Math.max(0, user.streak || 0);
   let todayCompleted = false;
 
   if (!user.lastActivityDate) {
@@ -179,10 +125,10 @@ export async function getUserStreak(userId, targetDate = new Date()) {
     const diff = getDayDifference(user.lastActivityDate, targetDate);
     if (diff === 0) {
       todayCompleted = true;
-      streak = user.streak || 0;
+      streak = Math.max(0, user.streak || 0);
     } else if (diff === 1) {
       todayCompleted = false;
-      streak = user.streak || 0;
+      streak = Math.max(0, user.streak || 0);
     } else {
       // Missed days
       todayCompleted = false;
@@ -191,8 +137,8 @@ export async function getUserStreak(userId, targetDate = new Date()) {
   }
 
   return {
-    streak,
-    longestStreak,
+    streak: Math.max(0, streak),
+    longestStreak: Math.max(0, longestStreak),
     todayCompleted,
     lastActivityDate: user.lastActivityDate || null,
     activityHistory: history,

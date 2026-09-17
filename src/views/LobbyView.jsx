@@ -1,62 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { roomAPI, matchAPI } from '../services/api';
+import React, { useState } from 'react';
+import { roomAPI } from '../services/api';
 
 export default function LobbyView({ navigate, queueing, onToggleQueue, currentUser }) {
   const [roomCodeInput, setRoomCodeInput] = useState('');
   const [isCreatingRoom, setIsCreatingRoom] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [liveDuels, setLiveDuels] = useState([]);
-  const [loadingDuels, setLoadingDuels] = useState(true);
-
-  useEffect(() => {
-    let isCancelled = false;
-
-    async function fetchLiveDuels() {
-      setLoadingDuels(true);
-      try {
-        const res = await matchAPI.getMatches().catch(() => null);
-        const matches = res?.data?.matches || res?.data || [];
-        const active = matches.filter((m) => m.status === 'ACTIVE' || m.status === 'WAITING');
-
-        if (!isCancelled && Array.isArray(active) && active.length > 0) {
-          setLiveDuels(
-            active.map((m, idx) => ({
-              id: m._id || m.id || idx,
-              p1: m.players?.[0]?.username || m.player1?.name || 'Combatant 1',
-              p1Score: m.players?.[0]?.ratingBefore || 500,
-              p1Avatar: (m.players?.[0]?.username || m.player1?.name || 'P1').slice(0, 2).toUpperCase(),
-              p2: m.players?.[1]?.username || m.player2?.name || 'Combatant 2',
-              p2Score: m.players?.[1]?.ratingBefore || 450,
-              p2Avatar: (m.players?.[1]?.username || m.player2?.name || 'P2').slice(0, 2).toUpperCase(),
-              problem: m.problemTitle || m.problems?.[0]?.title || 'Algorithmic Duel',
-              tier: (m.difficulty || 'MEDIUM').toUpperCase(),
-              tierColor: m.difficulty === 'Hard' ? 'indigo' : m.difficulty === 'Easy' ? 'emerald' : 'amber',
-              time: 'Live',
-            }))
-          );
-        } else if (!isCancelled) {
-          setLiveDuels([]);
-        }
-      } catch (err) {
-        console.warn('Error fetching live duels:', err);
-      } finally {
-        if (!isCancelled) setLoadingDuels(false);
-      }
-    }
-
-    fetchLiveDuels();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, []);
 
   const handleCreateRoom = async () => {
     setIsCreatingRoom(true);
     setErrorMsg('');
     try {
       const hostId = currentUser?.id || 'player_' + Math.random().toString(36).substr(2, 6);
-      const hostName = currentUser?.name || 'Combatant';
+      const hostName = currentUser?.name || currentUser?.username || 'Combatant';
       const res = await roomAPI.createRoom(hostId, hostName);
       const code = res?.data?.code || res?.code;
       if (code) {
@@ -79,7 +34,7 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
     setErrorMsg('');
     try {
       const playerId = currentUser?.id || 'guest_' + Math.random().toString(36).substr(2, 6);
-      const playerName = currentUser?.name || 'Cadet';
+      const playerName = currentUser?.name || currentUser?.username || 'Cadet';
       await roomAPI.joinRoom(cleanCode, playerId, playerName);
       sessionStorage.setItem('activeRoomCode', cleanCode);
       navigate('private-room');
@@ -130,7 +85,7 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
           </div>
         </div>
 
-        {/* Operational Grid: Protocols & Live Duels */}
+        {/* Operational Grid: Protocols & Information */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* Left Column (7 cols): Protocol Selectors */}
           <div className="lg:col-span-7 space-y-4">
@@ -263,61 +218,85 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
             </div>
           </div>
 
-          {/* Right Column (5 cols): Live Arena Streams */}
+          {/* Right Column (5 cols): Arena Rules & Compiler Info */}
           <div className="lg:col-span-5 space-y-4">
-            <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-xs space-y-3">
+            {/* Arena Protocols & Rules */}
+            <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-xs space-y-4 font-mono text-xs">
+              <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
+                <span className="material-symbols-outlined text-base text-indigo-600">gavel</span>
+                <h2 className="text-sm font-semibold tracking-tight text-slate-900 font-sans">
+                  Arena Combat Rules
+                </h2>
+              </div>
+
+              <div className="space-y-3 font-sans text-xs text-slate-600">
+                <div className="flex items-start gap-2.5">
+                  <span className="w-5 h-5 rounded bg-indigo-50 text-indigo-700 font-mono font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">
+                    01
+                  </span>
+                  <div>
+                    <strong className="text-slate-900 font-semibold block">Authoritative Evaluation</strong>
+                    Code is compiled in sandboxed containers via OnlineCompiler.io. Solutions must pass all public and hidden test cases.
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-2.5">
+                  <span className="w-5 h-5 rounded bg-indigo-50 text-indigo-700 font-mono font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">
+                    02
+                  </span>
+                  <div>
+                    <strong className="text-slate-900 font-semibold block">Deterministic Rating Adjustments</strong>
+                    Victories yield +24 LP; defeats lose -18 LP. All rating transitions are committed directly to MongoDB.
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-2.5">
+                  <span className="w-5 h-5 rounded bg-indigo-50 text-indigo-700 font-mono font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">
+                    03
+                  </span>
+                  <div>
+                    <strong className="text-slate-900 font-semibold block">Zero Tolerance for Abandonment</strong>
+                    Leaving an active match mid-way triggers immediate forfeiture (-24 LP penalty). The remaining combatant receives +25 LP compensation.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Supported Language Runtimes */}
+            <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-xs space-y-3 font-mono text-xs">
               <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                 <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-base text-rose-500">sensors</span>
-                  <h2 className="text-sm font-semibold tracking-tight text-slate-900">
-                    Live Arena Streams
-                  </h2>
+                  <span className="material-symbols-outlined text-base text-emerald-600">verified</span>
+                  <h3 className="text-sm font-semibold tracking-tight text-slate-900 font-sans">
+                    Supported Compilers
+                  </h3>
                 </div>
-                <span className="text-xs font-mono text-slate-400">
-                  {liveDuels.length} {liveDuels.length === 1 ? 'Duel Live' : 'Duels Live'}
+                <span className="text-[10px] text-emerald-600 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                  5 Runtimes Active
                 </span>
               </div>
 
-              <div className="space-y-3 font-mono">
-                {liveDuels.length > 0 ? (
-                  liveDuels.map((duel) => (
-                    <div
-                      key={duel.id}
-                      className="p-3 rounded-lg bg-slate-50 border border-slate-200/80 hover:border-indigo-300 transition-all shadow-2xs space-y-2.5"
-                    >
-                      <div className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-                          <span className="font-semibold text-slate-900 font-sans">{duel.p1}</span>
-                          <span className="text-slate-400 text-[11px]">({duel.p1Score})</span>
-                          <span className="text-indigo-600 font-bold">vs</span>
-                          <span className="font-semibold text-slate-900 font-sans">{duel.p2}</span>
-                          <span className="text-slate-400 text-[11px]">({duel.p2Score})</span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 font-medium">{duel.time}</span>
-                      </div>
-
-                      <div className="flex items-center justify-between text-[11px] font-sans">
-                        <div className="flex items-center gap-1.5 truncate">
-                          <span className="text-slate-700 truncate">{duel.problem}</span>
-                          <span
-                            className={`text-[9px] font-mono px-1 py-0.2 rounded font-semibold border ${
-                              duel.tierColor === 'amber'
-                                ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            }`}
-                          >
-                            {duel.tier}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="p-6 text-center text-xs font-mono text-slate-400">
-                    {loadingDuels ? 'Scanning active arena streams...' : 'No combat duels currently active. Be the first to duel!'}
-                  </div>
-                )}
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <div className="p-2 rounded bg-slate-50 border border-slate-100 flex items-center justify-between">
+                  <span className="text-slate-800 font-semibold">C</span>
+                  <span className="text-slate-400 text-[10px]">GCC 15</span>
+                </div>
+                <div className="p-2 rounded bg-slate-50 border border-slate-100 flex items-center justify-between">
+                  <span className="text-slate-800 font-semibold">C++</span>
+                  <span className="text-slate-400 text-[10px]">G++ 15</span>
+                </div>
+                <div className="p-2 rounded bg-slate-50 border border-slate-100 flex items-center justify-between">
+                  <span className="text-slate-800 font-semibold">Java</span>
+                  <span className="text-slate-400 text-[10px]">OpenJDK 25</span>
+                </div>
+                <div className="p-2 rounded bg-slate-50 border border-slate-100 flex items-center justify-between">
+                  <span className="text-slate-800 font-semibold">JavaScript</span>
+                  <span className="text-slate-400 text-[10px]">Deno</span>
+                </div>
+                <div className="p-2 rounded bg-slate-50 border border-slate-100 flex items-center justify-between col-span-2">
+                  <span className="text-slate-800 font-semibold">Python</span>
+                  <span className="text-slate-400 text-[10px]">Python 3.14</span>
+                </div>
               </div>
             </div>
 

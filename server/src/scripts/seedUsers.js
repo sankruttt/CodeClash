@@ -1,11 +1,10 @@
-// Seed script - creates test users
+// Seed script - creates test users in MongoDB
 import dotenv from 'dotenv';
 dotenv.config();
 
 import { connectDatabase, isMongoConnected } from '../config/database.js';
 import User from '../models/User.js';
 import PlayerStatistics from '../models/PlayerStatistics.js';
-import { inMemoryStore } from '../services/inMemoryStore.js';
 
 const testUsers = [
   {
@@ -100,124 +99,77 @@ const testUsers = [
 
 async function seedUsers() {
   console.log('🌱 Seeding test users...\n');
-  
+
   await connectDatabase();
-  
-  if (isMongoConnected()) {
-    console.log('📦 Using MongoDB');
-    
-    let created = 0;
-    let skipped = 0;
-    
-    for (const userData of testUsers) {
-      try {
-        // Check if user already exists
-        const existing = await User.findOne({
-          $or: [{ email: userData.email }, { username: userData.username }]
-        });
-        
-        if (existing) {
-          console.log(`⏭️  Skipped: ${userData.username} (already exists)`);
-          skipped++;
-          continue;
-        }
-        
-        // Use plain password - the middleware will hash it
-        const user = await User.create(userData);
-        console.log(`✅ Created: ${userData.username} (rating: ${userData.rating})`);
-        created++;
-        
-        // Create statistics
-        const stats = new PlayerStatistics({
-          userId: user._id,
-          username: user.username,
-          totalMatches: userData.wins + userData.losses,
-          totalWins: userData.wins,
-          totalLosses: userData.losses,
-          currentRating: userData.rating,
-          peakRating: userData.rating,
-          currentStreak: userData.streak,
-          bestStreak: userData.streak,
-          winRate: Math.round((userData.wins / (userData.wins + userData.losses)) * 100),
-          globalRank: 0,
-          seasonPoints: userData.wins * 10
-        });
-        await stats.save();
-        
-      } catch (error) {
-        console.error(`❌ Error creating ${userData.username}:`, error.message);
-      }
-    }
-    
-    console.log(`\n📊 Summary: ${created} created, ${skipped} skipped`);
-    
-    // Update global ranks
-    const allStats = await PlayerStatistics.find().sort({ currentRating: -1 });
-    for (let i = 0; i < allStats.length; i++) {
-      allStats[i].globalRank = i + 1;
-      await allStats[i].save();
-    }
-    console.log('✅ Global ranks updated');
-    
-  } else {
-    console.log('💾 Using in-memory store');
-    
-    let created = 0;
-    let skipped = 0;
-    
-    for (const userData of testUsers) {
-      try {
-        const existing = inMemoryStore.getUserByEmail(userData.email);
-        if (existing) {
-          console.log(`⏭️  Skipped: ${userData.username} (already exists)`);
-          skipped++;
-          continue;
-        }
-        
-        // Hash password for in-memory store too
-        const { user } = await inMemoryStore.createUser({
-          username: userData.username,
-          email: userData.email,
-          password: userData.password,
-          avatar: userData.avatar
-        });
-        
-        // Set the user's stats (rating, wins, etc.)
-        inMemoryStore.updateUser(user.id, {
-          color: userData.color,
-          rating: userData.rating,
-          wins: userData.wins,
-          losses: userData.losses,
-          streak: userData.streak
-        });
-        
-        // Update statistics
-        inMemoryStore.updateStatistics(user.id, {
-          currentRating: userData.rating,
-          peakRating: userData.rating,
-          totalWins: userData.wins,
-          totalLosses: userData.losses,
-          totalMatches: userData.wins + userData.losses,
-          currentStreak: userData.streak,
-          bestStreak: Math.max(0, userData.streak),
-          winRate: Math.round((userData.wins / (userData.wins + userData.losses)) * 100)
-        });
-        
-        console.log(`✅ Created: ${userData.username} (rating: ${userData.rating})`);
-        created++;
-      } catch (error) {
-        console.error(`❌ Error creating ${userData.username}:`, error.message);
-      }
-    }
-    
-    console.log(`\n📊 Summary: ${created} created, ${skipped} skipped`);
+
+  if (!isMongoConnected()) {
+    console.error('❌ MongoDB not connected! Seed failed.');
+    process.exit(1);
   }
-  
+
+  console.log('📦 Using MongoDB');
+
+  let created = 0;
+  let skipped = 0;
+
+  for (const userData of testUsers) {
+    try {
+      // Check if user already exists
+      const existing = await User.findOne({
+        $or: [{ email: userData.email }, { username: userData.username }]
+      });
+
+      if (existing) {
+        console.log(`⏭️  Skipped: ${userData.username} (already exists)`);
+        skipped++;
+        continue;
+      }
+
+      // Use plain password - the middleware will hash it
+      const user = await User.create(userData);
+      console.log(`✅ Created: ${userData.username} (rating: ${userData.rating})`);
+      created++;
+
+      // Create statistics
+      const stats = new PlayerStatistics({
+        userId: user._id,
+        username: user.username,
+        totalMatches: userData.wins + userData.losses,
+        totalWins: userData.wins,
+        totalLosses: userData.losses,
+        currentRating: userData.rating,
+        peakRating: userData.rating,
+        currentStreak: userData.streak,
+        bestStreak: userData.streak,
+        winRate: Math.round((userData.wins / (userData.wins + userData.losses)) * 100),
+        globalRank: 0,
+        seasonPoints: userData.wins * 10
+      });
+      await stats.save();
+    } catch (error) {
+      console.error(`❌ Error creating ${userData.username}:`, error.message);
+    }
+  }
+
+  console.log(`\n📊 Summary: ${created} created, ${skipped} skipped`);
+
+  // Update global ranks on both PlayerStatistics AND User
+  const allUsers = await User.find().sort({ rating: -1, _id: 1 });
+  for (let i = 0; i < allUsers.length; i++) {
+    allUsers[i].rank = i + 1;
+    await allUsers[i].save();
+    await PlayerStatistics.findOneAndUpdate(
+      { userId: allUsers[i]._id },
+      { globalRank: i + 1, currentRating: allUsers[i].rating }
+    );
+  }
+  console.log('✅ Global ranks updated synchronously on User and PlayerStatistics');
+
   console.log('\n✅ Seed completed!');
   process.exit(0);
 }
 
-seedUsers().catch(err => {
+seedUsers().catch((err) => {
   console.error('❌ Seed failed:', err);
   process.exit(1);
 });

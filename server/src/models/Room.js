@@ -24,10 +24,19 @@ const roomSchema = new mongoose.Schema({
     type: String,
     default: null,
   },
+  matchId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Match',
+    default: null,
+  },
   status: {
     type: String,
-    enum: ['waiting', 'ready', 'in_progress', 'completed'],
+    enum: ['waiting', 'ready', 'in_progress', 'completed', 'abandoned'],
     default: 'waiting',
+  },
+  abandonedBy: {
+    type: String,
+    default: null,
   },
   questions: {
     type: Array,
@@ -35,11 +44,16 @@ const roomSchema = new mongoose.Schema({
   },
   difficulty: {
     type: String,
+    enum: ['Easy', 'Medium', 'Hard'],
     default: 'Medium',
   },
   timeLimit: {
     type: String,
     default: '15:00',
+  },
+  duration: {
+    type: Number,
+    default: 900, // seconds
   },
   startedAt: {
     type: Date,
@@ -63,6 +77,7 @@ roomSchema.set('toJSON', {
     return ret;
   },
 });
+roomSchema.set('toObject', { virtuals: true, versionKey: false });
 
 const Room = mongoose.model('Room', roomSchema);
 export default Room;

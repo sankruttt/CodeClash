@@ -46,12 +46,11 @@ const playerStatisticsSchema = new mongoose.Schema({
   
   // Languages
   languageStats: {
-    javascript: { solved: { type: Number, default: 0 }, attempted: { type: Number, default: 0 } },
-    python: { solved: { type: Number, default: 0 }, attempted: { type: Number, default: 0 } },
-    typescript: { solved: { type: Number, default: 0 }, attempted: { type: Number, default: 0 } },
-    java: { solved: { type: Number, default: 0 }, attempted: { type: Number, default: 0 } },
     c: { solved: { type: Number, default: 0 }, attempted: { type: Number, default: 0 } },
-    cpp: { solved: { type: Number, default: 0 }, attempted: { type: Number, default: 0 } }
+    cpp: { solved: { type: Number, default: 0 }, attempted: { type: Number, default: 0 } },
+    java: { solved: { type: Number, default: 0 }, attempted: { type: Number, default: 0 } },
+    javascript: { solved: { type: Number, default: 0 }, attempted: { type: Number, default: 0 } },
+    python: { solved: { type: Number, default: 0 }, attempted: { type: Number, default: 0 } }
   },
   
   // Tags

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { compilerAPI, problemAPI } from '../services/api';
+import { compilerAPI, problemAPI, matchAPI, roomAPI } from '../services/api';
 
 const fallbackCode = `function search(nums, target) {
   // Binary Search Implementation
@@ -17,20 +17,45 @@ const fallbackCode = `function search(nums, target) {
 // Test call
 console.log(search([-1, 0, 3, 5, 9, 12], 9));`;
 
+const parseDurationSeconds = (val) => {
+  if (typeof val === 'number' && val > 0) return val;
+  if (typeof val === 'string') {
+    const parts = val.split(':');
+    if (parts.length === 2) {
+      return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+    }
+    const parsed = parseInt(val, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return 15 * 60;
+};
+
 export default function ArenaView({ navigate, currentUser, activeMatch, onExitArena }) {
   const [problem, setProblem] = useState(activeMatch?.problemData || null);
+  const [selectedLanguage, setSelectedLanguage] = useState('JavaScript');
   const [code, setCode] = useState(() => {
     return activeMatch?.problemData?.starterCode?.javascript || fallbackCode;
   });
-  const [selectedLanguage, setSelectedLanguage] = useState('JavaScript');
   const [activeCaseIndex, setActiveCaseIndex] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(15 * 60); // 15:00
+
+  const totalMatchSeconds = parseDurationSeconds(activeMatch?.duration || activeMatch?.timeLimit || '15:00');
+  const [timeLeft, setTimeLeft] = useState(() => {
+    if (activeMatch?.startedAt) {
+      const elapsed = Math.floor((Date.now() - new Date(activeMatch.startedAt).getTime()) / 1000);
+      if (elapsed > 0 && elapsed < totalMatchSeconds) {
+        return totalMatchSeconds - elapsed;
+      }
+    }
+    return totalMatchSeconds;
+  });
+
   const [currentTab, setCurrentTab] = useState('spec'); // 'spec' | 'submissions'
   const [showNotification, setShowNotification] = useState(null);
   const [executionResult, setExecutionResult] = useState(null);
   const [pastSubmissions, setPastSubmissions] = useState([]);
+  const [isAbandoned, setIsAbandoned] = useState(false);
 
   // Fetch problem if not present in activeMatch
   useEffect(() => {
@@ -49,13 +74,52 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
     }
   }, [problem]);
 
-  // Countdown timer
+  // Countdown timer based on server duration
   useEffect(() => {
+    if (isAbandoned) return;
     const timer = setInterval(() => {
       setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isAbandoned]);
+
+  // Real-time polling for opponent abandonment
+  useEffect(() => {
+    const roomCode = activeMatch?.roomCode;
+    const matchId = activeMatch?.matchId || activeMatch?.id;
+
+    if (!roomCode && !matchId) return;
+
+    let isMounted = true;
+
+    const checkStatus = async () => {
+      try {
+        if (roomCode) {
+          const res = await roomAPI.getRoom(roomCode).catch(() => null);
+          const room = res?.data?.room || res?.data || res;
+          if ((room?.status === 'abandoned' || room?.abandonedBy) && isMounted) {
+            setIsAbandoned(true);
+            return;
+          }
+        }
+        if (matchId && !String(matchId).startsWith('room_') && !String(matchId).startsWith('match_')) {
+          const mRes = await matchAPI.getMatch(matchId).catch(() => null);
+          const m = mRes?.data?.match || mRes?.data || mRes;
+          if ((m?.status === 'ABANDONED' || m?.abandonedBy) && isMounted) {
+            setIsAbandoned(true);
+          }
+        }
+      } catch (err) {
+        // silent polling catch
+      }
+    };
+
+    const interval = setInterval(checkStatus, 2000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [activeMatch]);
 
   const formatTimer = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -66,20 +130,16 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
   const getStarterCodeForLang = (lang, p = problem) => {
     const l = (lang || '').toLowerCase();
     if (l === 'c') {
-      if (p?.starterCode?.c) return p.starterCode.c;
-      return `#include <stdio.h>\n#include <stdbool.h>\n#include <stdlib.h>\n#include <string.h>\n\n// Solution for: ${p?.title || 'Algorithmic Challenge'}\nint main() {\n    // Write your solution here\n    printf("Output\\n");\n    return 0;\n}\n`;
+      return p?.starterCode?.c || `#include <stdio.h>\n\nint main() {\n    return 0;\n}\n`;
     }
     if (l.includes('c++') || l.includes('cpp')) {
-      if (p?.starterCode?.cpp) return p.starterCode.cpp;
-      return `#include <iostream>\n#include <vector>\n#include <string>\n#include <algorithm>\n\nusing namespace std;\n\n// Solution for: ${p?.title || 'Algorithmic Challenge'}\nint main() {\n    // Write your solution here\n    cout << "Output" << endl;\n    return 0;\n}\n`;
+      return p?.starterCode?.cpp || `#include <iostream>\nusing namespace std;\n\nint main() {\n    return 0;\n}\n`;
+    }
+    if (l.includes('java')) {
+      return p?.starterCode?.java || `import java.util.*;\n\npublic class Solution {\n    public static void main(String[] args) {\n    }\n}\n`;
     }
     if (l.includes('python')) {
-      if (p?.starterCode?.python) return p.starterCode.python;
-      return `def solve():\n    # Solution for: ${p?.title || 'Algorithmic Challenge'}\n    pass\n\nif __name__ == '__main__':\n    solve()\n`;
-    }
-    if (l.includes('typescript')) {
-      if (p?.starterCode?.typescript) return p.starterCode.typescript;
-      return `function solve(): void {\n  // Solution for: ${p?.title || 'Algorithmic Challenge'}\n}\n\nsolve();\n`;
+      return p?.starterCode?.python || `def solve():\n    pass\n\nif __name__ == '__main__':\n    solve()\n`;
     }
     return p?.starterCode?.javascript || fallbackCode;
   };
@@ -93,14 +153,14 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
     const l = selectedLanguage.toLowerCase();
     if (l === 'c') return 'c';
     if (l.includes('c++') || l.includes('cpp')) return 'cpp';
-    if (l.includes('python')) return 'python';
-    if (l.includes('typescript')) return 'typescript';
     if (l.includes('java')) return 'java';
+    if (l.includes('python')) return 'python';
     return 'javascript';
   };
 
   // Run code against OnlineCompiler.io
   const handleRunTests = async () => {
+    if (isAbandoned || isRunning) return;
     setIsRunning(true);
     setExecutionResult(null);
     try {
@@ -128,9 +188,10 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
 
   // Submit code to backend and record in MongoDB
   const handleCustomSubmit = async () => {
+    if (isAbandoned || isSubmitting) return;
     setIsSubmitting(true);
     try {
-      const matchId = activeMatch?.id || 'match_adhoc';
+      const matchId = activeMatch?.matchId || activeMatch?.id || activeMatch?.roomCode || 'match_adhoc';
       const problemId = problem?._id || problem?.id || '6a9bec6232c0d06705daedd5';
       const lang = getNormalizedLang();
 
@@ -164,6 +225,27 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
     }
   };
 
+  const handleForfeit = async () => {
+    const roomCode = activeMatch?.roomCode;
+    const matchId = activeMatch?.matchId || activeMatch?.id;
+    const playerId = currentUser?.id || 'player';
+
+    try {
+      await Promise.allSettled([
+        roomCode ? roomAPI.abandonRoom(roomCode, playerId) : Promise.resolve(),
+        matchId ? matchAPI.abandonMatch(matchId, playerId) : Promise.resolve(),
+      ]);
+    } catch (err) {
+      console.warn('Forfeit notification notice:', err);
+    } finally {
+      if (onExitArena) {
+        onExitArena();
+      } else {
+        navigate('lobby');
+      }
+    }
+  };
+
   const lineCount = code.split('\n').length;
   const lineNumbers = Array.from({ length: Math.max(lineCount, 25) }, (_, i) => i + 1);
 
@@ -189,7 +271,35 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
   const activeTestCase = testCasesList[activeCaseIndex] || testCasesList[0];
 
   return (
-    <div className="flex-1 flex flex-col h-[calc(100vh-56px)] overflow-hidden min-w-0 pb-28">
+    <div className="flex-1 flex flex-col h-[calc(100vh-56px)] overflow-hidden min-w-0 pb-28 relative">
+      {/* Abandonment Modal */}
+      {isAbandoned && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 max-w-md w-full shadow-2xl space-y-4 font-mono">
+            <div className="flex items-center gap-3 text-amber-600">
+              <span className="material-symbols-outlined text-2xl">warning</span>
+              <h3 className="font-bold text-base text-slate-900">Match Abandoned</h3>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed font-sans">
+              Your opponent has left the match. The match has been abandoned.
+            </p>
+            <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-800 text-xs font-mono">
+              ✓ Abandonment reward processed (+25 LP)
+            </div>
+            <button
+              onClick={() => {
+                sessionStorage.removeItem('codeclash_active_match');
+                if (onExitArena) onExitArena();
+                else navigate('lobby');
+              }}
+              className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
+            >
+              Return to Lobby
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Battle Match HUD Bar */}
       <div className="h-12 bg-white border-b border-slate-200/80 px-4 sm:px-6 flex items-center justify-between shrink-0 shadow-2xs">
         {/* Player 1 (You) */}
@@ -232,13 +342,7 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
               {activeMatch?.type ? activeMatch.type.toUpperCase() : '1v1 DUEL'}
             </span>
             <button
-              onClick={() => {
-                if (onExitArena) {
-                  onExitArena();
-                } else {
-                  navigate('lobby');
-                }
-              }}
+              onClick={handleForfeit}
               className="ml-2 px-2 py-0.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 text-[10px] font-mono font-bold tracking-wider uppercase border border-rose-200 transition-colors flex items-center gap-1 cursor-pointer"
               title="Forfeit & Exit Arena"
             >
@@ -316,8 +420,8 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
                   <h1 className="text-sm font-semibold text-slate-900 tracking-tight font-mono">
                     {problem?.title || 'Binary Search'}
                   </h1>
-                  <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                    {problem?.difficulty || 'MEDIUM'}
+                  <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-semibold bg-amber-50 text-amber-700 border border-amber-200 uppercase">
+                    {problem?.difficulty || activeMatch?.difficulty || 'MEDIUM'}
                   </span>
                   <span className="text-[11px] font-mono text-slate-500 ml-auto font-medium">
                     {problem?.points || 100} pts
@@ -427,11 +531,11 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
                 onChange={(e) => handleLanguageChange(e.target.value)}
                 className="px-2 py-0.5 rounded bg-white text-xs font-mono font-medium border border-slate-200 text-slate-800 cursor-pointer shadow-2xs focus:outline-none"
               >
-                <option value="JavaScript">JavaScript</option>
-                <option value="Python">Python 3.14</option>
-                <option value="TypeScript">TypeScript</option>
                 <option value="C">C (GCC 15)</option>
                 <option value="C++">C++ (G++ 15)</option>
+                <option value="Java">Java (OpenJDK 25)</option>
+                <option value="JavaScript">JavaScript (Deno)</option>
+                <option value="Python">Python (3.14)</option>
               </select>
               <span className="text-[10px] font-mono text-slate-400">OnlineCompiler.io Active</span>
             </div>
@@ -448,55 +552,60 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
           </div>
 
           {/* Editor Surface */}
-          <div className="flex-1 flex overflow-hidden relative font-mono text-[12px] leading-5 bg-white">
-            {/* Gutter */}
-            <div className="w-10 select-none py-2 text-right pr-2 text-slate-400 font-mono text-[11px] bg-[#f8fafc] border-r border-slate-200 shrink-0">
+          <div className="flex-1 flex overflow-hidden bg-slate-900 font-mono text-xs text-slate-100">
+            {/* Line Numbers */}
+            <div className="w-10 py-3 bg-slate-950 text-slate-600 select-none text-right pr-2 shrink-0 border-r border-slate-800 text-[11px] overflow-hidden">
               {lineNumbers.map((num) => (
-                <div key={num}>{num}</div>
+                <div key={num} className="leading-5 h-5">
+                  {num}
+                </div>
               ))}
             </div>
 
-            {/* Editable Code Area */}
+            {/* Code Textarea */}
             <textarea
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              spellCheck="false"
-              className="flex-1 py-2 px-3 overflow-y-auto text-slate-800 font-mono text-[12px] leading-5 bg-white resize-none focus:outline-none selection:bg-indigo-100"
+              disabled={isAbandoned}
+              spellCheck={false}
+              className="flex-1 p-3 bg-transparent text-slate-100 font-mono text-xs leading-5 resize-none focus:outline-none overflow-y-auto whitespace-pre selection:bg-indigo-700 selection:text-white disabled:opacity-50"
+              style={{ tabSize: 2 }}
             />
           </div>
 
-          {/* Editor Status & Action Bar */}
-          <div className="h-10 bg-white border-t border-slate-200/80 px-3 flex items-center justify-between shrink-0 font-mono text-[11px]">
-            <div className="flex items-center gap-2 text-slate-500">
+          {/* Action Bar */}
+          <div className="h-12 bg-white border-t border-slate-200 px-4 flex items-center justify-between shrink-0 shadow-2xs">
+            <div className="flex items-center gap-2 text-slate-500 font-mono text-[11px]">
               <span>Ln {lineCount}, Col 1</span>
               <span>•</span>
-              <span>OnlineCompiler REST</span>
+              <span>UTF-8</span>
             </div>
+
             <div className="flex items-center gap-2">
               <button
+                id="run-tests-btn"
                 onClick={handleRunTests}
-                disabled={isRunning}
-                className="flex items-center gap-1.5 px-3 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 transition-all font-mono font-medium shadow-2xs cursor-pointer active:scale-95"
+                disabled={isRunning || isSubmitting || isAbandoned}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-800 font-mono text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs disabled:opacity-50"
               >
-                <span className="material-symbols-outlined text-[14px] text-slate-700">
-                  {isRunning ? 'refresh' : 'play_arrow'}
-                </span>
-                <span>{isRunning ? 'Running...' : 'Run Tests'}</span>
+                <span className="material-symbols-outlined text-[14px]">play_arrow</span>
+                <span>{isRunning ? 'RUNNING...' : 'RUN TESTS'}</span>
               </button>
 
               <button
+                id="submit-solution-btn"
                 onClick={handleCustomSubmit}
-                disabled={isSubmitting}
-                className="flex items-center gap-1.5 px-3.5 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white font-mono font-semibold transition-all active:scale-95 shadow-2xs cursor-pointer"
+                disabled={isSubmitting || isRunning || isAbandoned}
+                className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-mono text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs shadow-indigo-600/20 disabled:opacity-50"
               >
-                <span className="material-symbols-outlined text-[14px]">bolt</span>
-                <span>{isSubmitting ? 'Submitting...' : 'Submit Solution'}</span>
+                <span className="material-symbols-outlined text-[14px]">done_all</span>
+                <span>{isSubmitting ? 'SUBMITTING...' : 'SUBMIT SOLUTION'}</span>
               </button>
             </div>
           </div>
         </section>
 
-        {/* Column 3: Test Execution Suite (3 cols) */}
+        {/* Column 3: Test Execution & Output (3 cols) */}
         <section className="col-span-12 lg:col-span-3 flex flex-col bg-slate-50 overflow-hidden h-full">
           {/* Test Suite Header */}
           <div className="h-9 bg-slate-50 border-b border-slate-200 px-3 flex items-center justify-between shrink-0">

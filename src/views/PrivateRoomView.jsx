@@ -49,15 +49,18 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
     const opponent = isOwner ? (data?.guestName || challengerName) : (data?.hostName || hostName);
 
     const matchConfig = {
+      matchId: data?.matchId || `room_${data?.code || roomCode}`,
       roomCode: data?.code || roomCode,
       type: 'Private Scrimmage',
       opponent,
       opponentRating: isOwner ? 2395 : 2180,
       opponentAvatar: opponent.slice(0, 2).toUpperCase(),
-      difficulty: selectedDifficulty || data?.difficulty || 'Medium',
-      timeLimit: timeLimit || data?.timeLimit || '15:00',
+      difficulty: data?.difficulty || selectedDifficulty || 'Medium',
+      timeLimit: data?.timeLimit || timeLimit || '15:00',
+      duration: data?.duration || (data?.timeLimit === '05:00' ? 300 : data?.timeLimit === '10:00' ? 600 : data?.timeLimit === '20:00' ? 1200 : 900),
       problem: problem?.title || 'Binary Search',
       problemData: problem,
+      startedAt: data?.updatedAt || new Date().toISOString(),
     };
 
     if (onStartBattle) {
@@ -121,13 +124,38 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
   const handleLeaveRoom = async () => {
     try {
       const playerId = currentUser?.id || 'guest';
-      await roomAPI.leaveRoom(roomCode, playerId);
+      await Promise.allSettled([
+        roomAPI.leaveRoom(roomCode, playerId),
+        roomAPI.abandonRoom(roomCode, playerId),
+      ]);
     } catch (err) {
       console.warn('Error leaving room:', err.message);
     } finally {
       sessionStorage.removeItem('activeRoomCode');
       sessionStorage.removeItem('codeclash_active_match');
       navigate('lobby');
+    }
+  };
+
+  const handleDifficultyChange = async (diff) => {
+    setSelectedDifficulty(diff);
+    if (isOwner) {
+      try {
+        await roomAPI.updateSettings(roomCode, { difficulty: diff, timeLimit });
+      } catch (err) {
+        console.warn('Failed to persist difficulty setting:', err.message);
+      }
+    }
+  };
+
+  const handleTimeLimitChange = async (time) => {
+    setTimeLimit(time);
+    if (isOwner) {
+      try {
+        await roomAPI.updateSettings(roomCode, { difficulty: selectedDifficulty, timeLimit: time });
+      } catch (err) {
+        console.warn('Failed to persist timeLimit setting:', err.message);
+      }
     }
   };
 
@@ -363,7 +391,7 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
                   <button
                     key={diff}
                     disabled={!isOwner}
-                    onClick={() => setSelectedDifficulty(diff)}
+                    onClick={() => handleDifficultyChange(diff)}
                     className={`px-2.5 py-1 rounded border transition-all ${
                       selectedDifficulty === diff
                         ? 'bg-indigo-50 text-indigo-700 border-indigo-200 font-semibold'
@@ -381,11 +409,11 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
                 Time Limit
               </span>
               <div className="flex items-center gap-1">
-                {['10:00', '15:00', '20:00'].map((time) => (
+                {['05:00', '10:00', '15:00', '20:00'].map((time) => (
                   <button
                     key={time}
                     disabled={!isOwner}
-                    onClick={() => setTimeLimit(time)}
+                    onClick={() => handleTimeLimitChange(time)}
                     className={`px-2.5 py-1 rounded border transition-all ${
                       timeLimit === time
                         ? 'bg-indigo-50 text-indigo-700 border-indigo-200 font-semibold'

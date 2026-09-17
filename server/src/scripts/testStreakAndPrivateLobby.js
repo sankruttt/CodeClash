@@ -2,7 +2,6 @@ import assert from 'assert';
 import { connectDatabase, isMongoConnected } from '../config/database.js';
 import User from '../models/User.js';
 import Room from '../models/Room.js';
-import { inMemoryStore } from '../services/inMemoryStore.js';
 import streakService, { toDateKey, getDayDifference } from '../services/streakService.js';
 import roomService from '../services/roomService.js';
 
@@ -12,8 +11,11 @@ console.log('══════════════════════�
 
 async function runTests() {
   await connectDatabase();
-  const usingMongo = isMongoConnected();
-  console.log(`📡 Storage Backend: ${usingMongo ? 'MongoDB' : 'In-Memory Store'}\n`);
+  if (!isMongoConnected()) {
+    console.error('❌ MongoDB not available. Aborting test.');
+    process.exit(1);
+  }
+  console.log('📡 Storage Backend: MongoDB (Authoritative)\n');
 
   // ==========================================
   // PART 1: STREAK CALCULATION & PERSISTENCE
@@ -25,23 +27,12 @@ async function runTests() {
   const testUsername = `stk_${uniqueSuffix}`;
   const testEmail = `tester_${uniqueSuffix}@codeclash.io`;
 
-  let testUser;
-  if (usingMongo) {
-    testUser = await User.create({
-      username: testUsername,
-      email: testEmail,
-      password: 'TestPassword123!',
-      avatar: 'ST'
-    });
-  } else {
-    const res = await inMemoryStore.createUser({
-      username: testUsername,
-      email: testEmail,
-      password: 'TestPassword123!',
-      avatar: 'ST'
-    });
-    testUser = res.user;
-  }
+  const testUser = await User.create({
+    username: testUsername,
+    email: testEmail,
+    password: 'TestPassword123!',
+    avatar: 'ST'
+  });
 
   const userId = testUser.id || testUser._id.toString();
 
@@ -109,13 +100,11 @@ async function runTests() {
   console.log('  ✓ 7-day weekly indicators accurately generated');
 
   // Verify MongoDB persistence directly
-  if (usingMongo) {
-    const freshUserFromDb = await User.findById(userId);
-    assert.strictEqual(freshUserFromDb.streak, 1, 'Database streak persists correctly');
-    assert.strictEqual(freshUserFromDb.longestStreak, 3, 'Database longestStreak persists correctly');
-    assert(freshUserFromDb.activityHistory.length >= 4, 'Activity history persisted in MongoDB');
-    console.log('  ✓ MongoDB database persistence verified');
-  }
+  const freshUserFromDb = await User.findById(userId);
+  assert.strictEqual(freshUserFromDb.streak, 1, 'Database streak persists correctly');
+  assert.strictEqual(freshUserFromDb.longestStreak, 3, 'Database longestStreak persists correctly');
+  assert(freshUserFromDb.activityHistory.length >= 4, 'Activity history persisted in MongoDB');
+  console.log('  ✓ MongoDB database persistence verified');
 
   // ==========================================
   // PART 2: PRIVATE LOBBY ROOM OWNER START
