@@ -241,6 +241,55 @@ export default function App() {
       });
   }, []);
 
+  // Pull the freshest user profile (LP/rating, wins, losses) from MongoDB so the
+  // top bar, dashboard, history and every other surface reflect the stored LP.
+  // NEVER discards the result like the old fire-and-forget getMe() calls.
+  const refreshUser = useCallback(async (forceUser) => {
+    try {
+      const res = forceUser ? { data: { user: forceUser } } : await authAPI.getMe();
+      if (res?.data?.user) {
+        const u = res.data.user;
+        const tierDetails = getTierDetails(u.rating || 1500, u.tier);
+        const combatant = {
+          id: u._id || u.id,
+          name: u.name || u.username,
+          username: u.username,
+          handle: `@${u.username}`,
+          avatar: u.avatar || (u.username ? u.username.slice(0, 2).toUpperCase() : 'KV'),
+          color: u.color || 'indigo',
+          rating: u.rating || 1500,
+          rank: u.rank || 1,
+          tier: tierDetails.currentTier,
+          wins: u.wins || 0,
+          losses: u.losses || 0,
+          streak: Math.max(0, u.streak || 0),
+          longestStreak: Math.max(0, u.longestStreak || u.bestStreak || u.streak || 0),
+          todayCompleted: u.todayCompleted || false,
+          lastActivityDate: u.lastActivityDate || null,
+          activityHistory: u.activityHistory || [],
+          weeklyIndicators: u.weeklyIndicators || null,
+          primaryStack: u.primaryStack || u.stack || 'Python',
+          stack: u.primaryStack || u.stack || 'Python',
+          email: u.email,
+        };
+        setCurrentUser(combatant);
+        sessionStorage.setItem('codeclash_user', JSON.stringify(combatant));
+        return combatant;
+      }
+      return null;
+    } catch (err) {
+      console.warn('refreshUser failed:', err.message);
+      return null;
+    }
+  }, []);
+
+  // Re-sync LP from MongoDB whenever the user navigates, so LP never goes stale.
+  useEffect(() => {
+    if (route && getAuthToken()) {
+      refreshUser();
+    }
+  }, [route, refreshUser]);
+
   // Queue simulation with real backend problem selection
   const handleToggleQueue = async (cfg = {}) => {
     if (queueing) {
@@ -450,40 +499,8 @@ export default function App() {
 
   // Refresh user data from MongoDB after match completion (LP update)
   const handleMatchComplete = useCallback(async () => {
-    try {
-      const res = await authAPI.getMe();
-      if (res?.data?.user) {
-        const u = res.data.user;
-        const tierDetails = getTierDetails(u.rating || 1500, u.tier);
-        const combatant = {
-          id: u._id || u.id,
-          name: u.name || u.username,
-          username: u.username,
-          handle: `@${u.username}`,
-          avatar: u.avatar || (u.username ? u.username.slice(0, 2).toUpperCase() : 'KV'),
-          color: u.color || 'indigo',
-          rating: u.rating || 1500,
-          rank: u.rank || 1,
-          tier: tierDetails.currentTier,
-          wins: u.wins || 0,
-          losses: u.losses || 0,
-          streak: Math.max(0, u.streak || 0),
-          longestStreak: Math.max(0, u.longestStreak || u.bestStreak || u.streak || 0),
-          todayCompleted: u.todayCompleted || false,
-          lastActivityDate: u.lastActivityDate || null,
-          activityHistory: u.activityHistory || [],
-          weeklyIndicators: u.weeklyIndicators || null,
-          primaryStack: u.primaryStack || u.stack || 'Python',
-          stack: u.primaryStack || u.stack || 'Python',
-          email: u.email,
-        };
-        setCurrentUser(combatant);
-        sessionStorage.setItem('codeclash_user', JSON.stringify(combatant));
-      }
-    } catch (err) {
-      console.warn('Failed to refresh user data after match completion:', err.message);
-    }
-  }, []);
+    await refreshUser();
+  }, [refreshUser]);
 
   // Trigger exit confirmation modal
   const handleTriggerExitArena = () => {
@@ -509,34 +526,7 @@ export default function App() {
         matchmakingAPI.leaveQueue().catch(() => null),
       ]);
 
-      const res = await authAPI.getMe().catch(() => null);
-      if (res?.data?.user) {
-        const u = res.data.user;
-        const tierDetails = getTierDetails(u.rating || 1500, u.tier);
-        const combatant = {
-          id: u._id || u.id,
-          name: u.username || u.name,
-          handle: `@${u.username}`,
-          avatar: u.avatar || (u.username ? u.username.slice(0, 2).toUpperCase() : 'KV'),
-          color: u.color || 'indigo',
-          rating: u.rating || 1500,
-          rank: u.rank || 1,
-          tier: tierDetails.currentTier,
-          wins: u.wins || 0,
-          losses: u.losses || 0,
-          streak: Math.max(0, u.streak || 0),
-          longestStreak: Math.max(0, u.longestStreak || u.bestStreak || u.streak || 0),
-          todayCompleted: u.todayCompleted || false,
-          lastActivityDate: u.lastActivityDate || null,
-          activityHistory: u.activityHistory || [],
-          weeklyIndicators: u.weeklyIndicators || null,
-          primaryStack: u.primaryStack || u.stack || 'Python',
-          stack: u.primaryStack || u.stack || 'Python',
-          email: u.email,
-        };
-        setCurrentUser(combatant);
-        sessionStorage.setItem('codeclash_user', JSON.stringify(combatant));
-      }
+      await refreshUser();
     } catch (err) {
       console.warn('Abandonment report notice:', err);
     }
@@ -698,6 +688,7 @@ export default function App() {
         {route === 'leaderboard' && (
           <LeaderboardView
             currentUser={currentUser}
+            onUserRefreshed={refreshUser}
           />
         )}
 
@@ -839,7 +830,7 @@ export default function App() {
             <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-left font-mono text-xs space-y-2.5">
               <div className="flex justify-between items-center text-slate-600">
                 <span>CURRENT RATING</span>
-                <span className="font-bold text-slate-900">{currentUser?.rating || 2148} LP</span>
+                <span className="font-bold text-slate-900">{currentUser?.rating || 1500} LP</span>
               </div>
               <div className="flex justify-between items-center text-rose-600 font-bold">
                 <span className="flex items-center gap-1">
@@ -851,7 +842,7 @@ export default function App() {
               <div className="border-t border-slate-200 pt-2 flex justify-between items-center">
                 <span className="text-slate-600 font-semibold">NEW RATING AFTER FORFEIT</span>
                 <span className="font-extrabold text-indigo-600 text-sm">
-                  {Math.max(0, (currentUser?.rating || 2148) - 24)} LP
+                  {Math.max(0, (currentUser?.rating || 1500) - 24)} LP
                 </span>
               </div>
             </div>

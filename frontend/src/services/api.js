@@ -1,4 +1,19 @@
-const API_BASE = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) || 'http://localhost:3001/api';
+function resolveApiBase() {
+  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  // Fall back to the deployed API when the page is served from a real host
+  // (e.g. Vercel), so the actual stored data/LP always loads instead of localhost.
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname || '';
+    if (!/^(localhost|127\.0\.0\.1|0\.0\.0\.0)/.test(host)) {
+      return 'https://codeclash-api.vercel.app/api';
+    }
+  }
+  return 'http://localhost:3001/api';
+}
+
+const API_BASE = resolveApiBase();
 
 // Token Storage Keys
 const TOKEN_KEY = 'codeclash_token';

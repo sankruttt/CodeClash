@@ -4,7 +4,7 @@ import { getTierDetails } from '../utils/tierUtils';
 
 const SUPPORTED_STACKS = ['All Stacks', 'C', 'C++', 'Java', 'JavaScript', 'Python'];
 
-export default function LeaderboardView({ currentUser }) {
+export default function LeaderboardView({ currentUser, onUserRefreshed }) {
   const [stackFilter, setStackFilter] = useState('All Stacks');
   const [searchQuery, setSearchQuery] = useState('');
   const [leaderboard, setLeaderboard] = useState([]);
@@ -61,6 +61,9 @@ export default function LeaderboardView({ currentUser }) {
 
       if (meRes?.success && meRes.data) {
         setUserRankData(meRes.data);
+        if (meRes.data.user && onUserRefreshed) {
+          onUserRefreshed(meRes.data.user);
+        }
       }
     } catch (err) {
       if (seq === requestSeq.current) {

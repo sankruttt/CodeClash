@@ -41,6 +41,9 @@ export default function ProfileView({ navigate, currentUser, onUpdateUser }) {
               weeklyIndicators: s.weeklyIndicators
             } : {})
           }));
+          if (onUpdateUser) {
+            onUpdateUser(u);
+          }
           const targetId = u._id || u.id;
           if (targetId) {
             const rankRes = await leaderboardAPI.getUserRank(targetId).catch(() => null);

@@ -132,7 +132,7 @@ export default function TopAppBar({
               </span>
               <span className="text-[11px] font-mono text-slate-300">•</span>
               <span className="text-[11px] font-mono text-slate-800 font-semibold">
-                {currentUser?.rating || 2148} LP
+                {currentUser?.rating || 1500} LP
               </span>
             </div>
             <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider group-hover:text-indigo-600 transition-colors">
