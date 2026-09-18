@@ -173,12 +173,12 @@ export function determineWinnerAndPoints(player1, player2) {
     winnerId = player1.userId;
     result = 'player1';
     rating1Change = 24;
-    rating2Change = -24;
+    rating2Change = -18;
   } else if (p2Solved > p1Solved) {
     winner = player2.userId;
     winnerId = player2.userId;
     result = 'player2';
-    rating1Change = -24;
+    rating1Change = -18;
     rating2Change = 24;
   } else if (p1Solved > 0 && p2Solved > 0) {
     // Rule 2 — Completion time: If both players solved the same number of problems > 0
@@ -187,12 +187,12 @@ export function determineWinnerAndPoints(player1, player2) {
       winnerId = player1.userId;
       result = 'player1';
       rating1Change = 24;
-      rating2Change = -24;
+      rating2Change = -18;
     } else if (p2Time < p1Time) {
       winner = player2.userId;
       winnerId = player2.userId;
       result = 'player2';
-      rating1Change = -24;
+      rating1Change = -18;
       rating2Change = 24;
     } else {
       // Rule 4 — Tie: Same solved count and same completion time -> DRAW, 0 points each
@@ -501,7 +501,7 @@ export async function abandonMatch(matchId, leavingUserId, extra = {}) {
   // Authoritative rating, rank, and history update
   if (!match.rewardsAwarded) {
     const penalty = 24;
-    const reward = 24;
+    const reward = 16;
 
     const leavingBefore = leavingUserDoc?.rating || leavingPlayer.ratingBefore || 1500;
     const leavingAfter = Math.max(0, leavingBefore - penalty);
@@ -517,7 +517,9 @@ export async function abandonMatch(matchId, leavingUserId, extra = {}) {
     match.rewardDetails = {
       winnerId: remainingPlayer.userId || null,
       abandonedBy: leavingPlayer.userId,
-      awardedAt: new Date()
+      awardedAt: new Date(),
+      rewardedLp: reward,
+      penaltyLp: penalty
     };
 
     // Update leaving player in MongoDB: User, PlayerStatistics, MatchHistory

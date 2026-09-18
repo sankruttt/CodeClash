@@ -183,9 +183,9 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
                   <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-100">
                     <div className="text-[10px] text-slate-400 font-medium">STAKE</div>
                     <div className="text-sm font-bold mt-0.5">
-                      <span className="text-emerald-600">+24</span>
+                      <span className="text-emerald-600">+24 LP</span>
                       <span className="text-black"> / </span>
-                      <span className="text-red-600"> -24 LP</span>
+                      <span className="text-red-600"> -18 LP</span>
                     </div>
                   </div>
                 </div>
@@ -356,7 +356,7 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
                   </span>
                   <div>
                     <strong className="text-slate-900 font-semibold block">Deterministic Rating Adjustments</strong>
-                    Victories yield +24 LP; defeats lose -24 LP. All rating transitions are committed directly to MongoDB.
+                    Victories yield +24 LP; defeats lose -18 LP. All rating transitions are committed directly to MongoDB.
                   </div>
                 </div>
 
@@ -366,7 +366,7 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
                   </span>
                   <div>
                     <strong className="text-slate-900 font-semibold block">Zero Tolerance for Abandonment</strong>
-                    Leaving an active match mid-way triggers immediate forfeiture (-24 LP penalty). The remaining combatant receives +24 LP compensation.
+                    Leaving an active match mid-way triggers immediate forfeiture (-24 LP penalty). The remaining combatant receives +16 LP compensation.
                   </div>
                 </div>
               </div>

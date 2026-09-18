@@ -34,10 +34,10 @@ const PILLARS = [
     hover: 'hover:border-emerald-300 group-hover:text-emerald-600',
     title: 'Rank & LP Ascension',
     body:
-      'Completed duels move your League Points the moment they finish — wins and forfeit rewards add LP, losses and abandonment deduct it. Your tier and ladder position follow your rating.',
+      'Completed duels move your League Points the moment they finish — wins add LP, losses deduct it, abandonments penalize the leaver, and draws clear even. Your tier and ladder position follow your rating.',
     footerLeft: 'Match Delta',
     footerLeftDot: 'bg-emerald-500',
-    footerRight: '±24 LP / Duel',
+    footerRight: '+24 Win / -18 Loss',
     footerRightColor: 'text-emerald-600',
   },
 ];

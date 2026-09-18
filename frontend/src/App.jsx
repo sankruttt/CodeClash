@@ -72,6 +72,7 @@ export default function App() {
   const [matchFoundModal, setMatchFoundModal] = useState(null);
   const [arenaLockedNotice, setArenaLockedNotice] = useState(null);
   const [confirmExitModal, setConfirmExitModal] = useState(false);
+  const [matchCompleteVisible, setMatchCompleteVisible] = useState(false);
   const [pendingNavigationRoute, setPendingNavigationRoute] = useState(null);
   const [forfeitNotice, setForfeitNotice] = useState(null);
 
@@ -674,6 +675,7 @@ export default function App() {
             onTriggerForfeit={handleTriggerExitArena}
             onForfeit={handleConfirmExit}
             onMatchComplete={handleMatchComplete}
+            onMatchCompleteVisible={setMatchCompleteVisible}
           />
         )}
 
@@ -709,16 +711,18 @@ export default function App() {
       </main>
 
       {/* Unified Floating Bottom Navigation Dock */}
-      <UnifiedDock
-        currentRoute={route}
-        navigate={navigate}
-        hasActiveMatch={Boolean(activeMatch)}
-        onArenaLockedClick={() => {
-          setArenaLockedNotice(
-            'Arena Locked: Enter the 1v1 Queue or start a Private Room duel to unlock.'
-          );
-        }}
-      />
+      {!matchCompleteVisible && (
+        <UnifiedDock
+          currentRoute={route}
+          navigate={navigate}
+          hasActiveMatch={Boolean(activeMatch)}
+          onArenaLockedClick={() => {
+            setArenaLockedNotice(
+              'Arena Locked: Enter the 1v1 Queue or start a Private Room duel to unlock.'
+            );
+          }}
+        />
+      )}
 
       {/* MATCH FOUND OVERLAY MODAL */}
       {matchFoundModal && (

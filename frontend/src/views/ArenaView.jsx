@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { compilerAPI, problemAPI, matchAPI, roomAPI, authAPI } from '../services/api';
 import MatchCompleteModal from '../components/MatchCompleteModal';
+import MatchAbandonedModal from '../components/MatchAbandonedModal';
 
 import {
   normalizeStackToDropdown,
@@ -31,7 +32,7 @@ const parseDurationSeconds = (val) => {
   return 10 * 60;
 };
 
-export default function ArenaView({ navigate, currentUser, activeMatch, onCleanExit, onTriggerForfeit, onForfeit, onMatchComplete }) {
+export default function ArenaView({ navigate, currentUser, activeMatch, onCleanExit, onTriggerForfeit, onForfeit, onMatchComplete, onMatchCompleteVisible }) {
   const initialProblems = Array.isArray(activeMatch?.problems) && activeMatch.problems.length > 0
     ? activeMatch.problems
     : activeMatch?.problemData
@@ -210,6 +211,16 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
     }
   }, [isCompleted, onMatchComplete]);
 
+  // Hide the bottom dock while any authoritative result/abandonment modal is displayed
+  useEffect(() => {
+    if (onMatchCompleteVisible) {
+      onMatchCompleteVisible((isCompleted && Boolean(matchResult)) || (isAbandoned && !isCompleted));
+    }
+    return () => {
+      if (onMatchCompleteVisible) onMatchCompleteVisible(false);
+    };
+  }, [isCompleted, matchResult, isAbandoned, onMatchCompleteVisible]);
+
   // Real-time polling for opponent progress, match completion, and abandonment
   useEffect(() => {
     if (isCompleted || isAbandoned) return;
@@ -242,6 +253,9 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
               return;
             }
             if (m.status === 'ABANDONED' || m.abandonedBy) {
+              // Store authoritative abandoned match data so the result card can
+              // render the real reward / abandoned-by / disconnect-time from DB.
+              setMatchResult(m);
               setIsAbandoned(true);
               const stored = sessionStorage.getItem('codeclash_active_match');
               if (stored) {
@@ -293,6 +307,11 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
           const res = await roomAPI.getRoom(roomCode).catch(() => null);
           const room = res?.data?.room || res?.data || res;
           if ((room?.status === 'abandoned' || room?.abandonedBy) && isMounted) {
+            // Best-effort: pull the authoritative abandoned match record for the result card
+            matchAPI.getMatch(targetId).then((mRes) => {
+              const mm = mRes?.data?.match || mRes?.match;
+              if (mm && isMounted) setMatchResult(mm);
+            }).catch(() => null);
             setIsAbandoned(true);
             const stored = sessionStorage.getItem('codeclash_active_match');
             if (stored) {
@@ -568,33 +587,15 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
 
   return (
     <div className="flex-1 flex flex-col h-[calc(100vh-56px)] overflow-hidden min-w-0 pb-28 relative">
-      {/* Abandonment Modal */}
-      {isAbandoned && !isCompleted && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 max-w-md w-full shadow-2xl space-y-4 font-mono">
-            <div className="flex items-center gap-3 text-amber-600">
-              <span className="material-symbols-outlined text-2xl">warning</span>
-              <h3 className="font-bold text-base text-slate-900">Match Abandoned</h3>
-            </div>
-            <p className="text-xs text-slate-600 leading-relaxed font-sans">
-              Your opponent has left the match. The match has been abandoned.
-            </p>
-            <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-800 text-xs font-mono">
-              ✓ Abandonment reward processed (+24 LP)
-            </div>
-            <button
-              onClick={() => {
-                sessionStorage.removeItem('codeclash_active_match');
-                if (onCleanExit) onCleanExit('lobby');
-                else navigate('lobby');
-              }}
-              className="w-full py-2.5 rounded-xl bg-white hover:bg-blue-50 hover:border-blue-500 hover:text-blue-600 active:bg-blue-100 text-slate-800 font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer border border-slate-200 shadow-2xs"
-            >
-              Return to Lobby
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Match Abandoned Result Card — shown to the REMAINING player */}
+      <MatchAbandonedModal
+        isOpen={isAbandoned && !isCompleted}
+        matchResult={matchResult}
+        currentUser={currentUser}
+        activeMatch={activeMatch}
+        onCleanExit={onCleanExit}
+        navigate={navigate}
+      />
 
       {/* Authoritative Match Complete Result Modal */}
       <MatchCompleteModal

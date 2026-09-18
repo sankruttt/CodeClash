@@ -58,7 +58,7 @@ export default function HistoryView({ navigate, currentUser }) {
                 const upperResult = (m.result || '').toUpperCase();
                 const isWin = upperResult === 'WIN' || upperResult === 'VICTORY';
                 const isDraw = upperResult === 'DRAW';
-                const delta = m.ratingChange ?? (isWin ? 24 : isDraw ? 0 : -24);
+                const delta = m.ratingChange ?? (isWin ? 24 : isDraw ? 0 : -18);
                 const lpStr = (delta >= 0 ? `+${delta}` : `${delta}`) + ' LP';
                 const rawDate = m.startedAt || m.createdAt;
                 return {

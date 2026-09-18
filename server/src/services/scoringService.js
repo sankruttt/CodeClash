@@ -135,7 +135,7 @@ export async function addMatchHistory(userId, match, playerResult, opponentResul
     score: `${mySolved}-${oppSolved}`,
     problemsSolved: mySolved,
     opponentProblemsSolved: oppSolved,
-    ratingChange: typeof playerResult.ratingChange === 'number' ? playerResult.ratingChange : (isWin ? 24 : isDraw ? 0 : -24),
+    ratingChange: typeof playerResult.ratingChange === 'number' ? playerResult.ratingChange : (isWin ? 24 : isDraw ? 0 : -18),
     ratingAfter: typeof playerResult.ratingAfter === 'number' ? playerResult.ratingAfter : 1500,
     duration: match.duration || 0,
     solveTime: solveTime ?? null,
