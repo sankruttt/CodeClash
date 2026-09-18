@@ -14,15 +14,25 @@ function generateRoomCode() {
 }
 
 export function parseDurationToSeconds(timeLimit) {
-  if (typeof timeLimit === 'number') return timeLimit;
-  if (!timeLimit || typeof timeLimit !== 'string') return 900; // 15 min default
-
-  const parts = timeLimit.split(':').map(Number);
-  if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-    return parts[0] * 60 + parts[1];
+  if (typeof timeLimit === 'number') {
+    if ([5, 10, 15].includes(timeLimit)) return timeLimit * 60;
+    return timeLimit;
   }
-  const parsedInt = parseInt(timeLimit, 10);
-  return !isNaN(parsedInt) ? parsedInt * 60 : 900;
+  if (!timeLimit || typeof timeLimit !== 'string') return 600;
+
+  const trimmed = timeLimit.trim();
+  if (trimmed.includes(':')) {
+    const parts = trimmed.split(':').map(Number);
+    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+      return parts[0] * 60 + parts[1];
+    }
+  }
+  const parsedInt = parseInt(trimmed, 10);
+  if (!isNaN(parsedInt)) {
+    if ([5, 10, 15].includes(parsedInt)) return parsedInt * 60;
+    return parsedInt;
+  }
+  return 600;
 }
 
 export async function createRoom({
@@ -30,12 +40,34 @@ export async function createRoom({
   hostName,
   difficulty = 'Medium',
   timeLimit = '10:00',
+  duration = null,
   questions = null
 }) {
+  if (difficulty && !['Easy', 'Medium', 'Hard'].includes(difficulty)) {
+    const err = new Error('Invalid difficulty: must be Easy, Medium, or Hard');
+    err.statusCode = 400;
+    err.code = 'VALIDATION_ERROR';
+    throw err;
+  }
   const validDifficulty = ['Easy', 'Medium', 'Hard'].includes(difficulty) ? difficulty : 'Medium';
-  const normalizedTime = timeLimit?.length === 4 ? `0${timeLimit}` : timeLimit;
+
+  let normalizedTime = timeLimit;
+  if (typeof normalizedTime === 'number') {
+    normalizedTime = `${normalizedTime < 10 ? '0' : ''}${normalizedTime}:00`;
+  }
+  if (normalizedTime && normalizedTime.length === 4) {
+    normalizedTime = `0${normalizedTime}`;
+  }
+  if (normalizedTime && !['05:00', '10:00', '15:00'].includes(normalizedTime)) {
+    const err = new Error('Invalid duration: only 5, 10, or 15 minutes allowed');
+    err.statusCode = 400;
+    err.code = 'VALIDATION_ERROR';
+    throw err;
+  }
   const validTimeLimit = ['05:00', '10:00', '15:00'].includes(normalizedTime) ? normalizedTime : '10:00';
-  const duration = parseDurationToSeconds(validTimeLimit);
+  const finalDuration = duration && [300, 600, 900].includes(duration)
+    ? duration
+    : parseDurationToSeconds(validTimeLimit);
 
   let roomCode;
   let attempts = 0;
@@ -52,14 +84,23 @@ export async function createRoom({
     throw err;
   }
 
+  let roomQuestions = questions;
+  if (!roomQuestions || roomQuestions.length === 0) {
+    const defaultDoc = await CodingProblem.findOne({ difficulty: validDifficulty, isActive: true }) ||
+      await CodingProblem.findOne({ difficulty: validDifficulty });
+    if (defaultDoc) {
+      roomQuestions = [defaultDoc.toObject ? defaultDoc.toObject() : defaultDoc];
+    }
+  }
+
   const room = new Room({
     code: roomCode,
     hostId,
     hostName,
     difficulty: validDifficulty,
     timeLimit: validTimeLimit,
-    duration,
-    questions: questions || [],
+    duration: finalDuration,
+    questions: roomQuestions || [],
     status: 'waiting'
   });
 
@@ -89,7 +130,7 @@ export async function updateRoomSettings(code, arg2, arg3 = {}) {
     hostId = settings.hostId;
   }
 
-  const { difficulty, timeLimit } = settings;
+  const { difficulty, timeLimit, duration } = settings;
 
   const upperCode = code.toUpperCase();
   const room = await Room.findOne({ code: upperCode });
@@ -107,12 +148,30 @@ export async function updateRoomSettings(code, arg2, arg3 = {}) {
     throw err;
   }
 
-  if (difficulty && ['Easy', 'Medium', 'Hard'].includes(difficulty)) {
+  if (difficulty) {
+    if (!['Easy', 'Medium', 'Hard'].includes(difficulty)) {
+      const err = new Error('Invalid difficulty: must be Easy, Medium, or Hard');
+      err.statusCode = 400;
+      err.code = 'VALIDATION_ERROR';
+      throw err;
+    }
     room.difficulty = difficulty;
+    // Update sample problem in room.questions strictly matching the new difficulty
+    const diffDoc = await CodingProblem.findOne({ difficulty, isActive: true }) ||
+      await CodingProblem.findOne({ difficulty });
+    if (diffDoc) {
+      room.questions = [diffDoc.toObject ? diffDoc.toObject() : diffDoc];
+    }
   }
 
   if (timeLimit) {
-    const normalizedTime = timeLimit.length === 4 ? `0${timeLimit}` : timeLimit;
+    let normalizedTime = timeLimit;
+    if (typeof normalizedTime === 'number') {
+      normalizedTime = `${normalizedTime < 10 ? '0' : ''}${normalizedTime}:00`;
+    }
+    if (normalizedTime && normalizedTime.length === 4) {
+      normalizedTime = `0${normalizedTime}`;
+    }
     if (!['05:00', '10:00', '15:00'].includes(normalizedTime)) {
       const err = new Error('Invalid duration: only 5, 10, or 15 minutes allowed');
       err.statusCode = 400;
@@ -120,7 +179,20 @@ export async function updateRoomSettings(code, arg2, arg3 = {}) {
       throw err;
     }
     room.timeLimit = normalizedTime;
-    room.duration = parseDurationToSeconds(normalizedTime);
+    room.duration = duration && [300, 600, 900].includes(duration)
+      ? duration
+      : parseDurationToSeconds(normalizedTime);
+  } else if (duration) {
+    let durSec = duration;
+    if (typeof durSec === 'number' && [5, 10, 15].includes(durSec)) durSec *= 60;
+    if (![300, 600, 900].includes(durSec)) {
+      const err = new Error('Invalid duration: only 5, 10, or 15 minutes allowed');
+      err.statusCode = 400;
+      err.code = 'VALIDATION_ERROR';
+      throw err;
+    }
+    room.duration = durSec;
+    room.timeLimit = `${Math.floor(durSec / 60) < 10 ? '0' : ''}${Math.floor(durSec / 60)}:00`;
   }
 
   await room.save();
@@ -243,7 +315,10 @@ export async function startRoomByCode(code, requesterId = null) {
   }
 
   // Server-authoritative problem selection strictly matching room difficulty
-  const selectedDifficulty = room.difficulty || 'Medium';
+  const selectedDifficulty = ['Easy', 'Medium', 'Hard'].includes(room.difficulty)
+    ? room.difficulty
+    : 'Medium';
+
   let problemDocs = await CodingProblem.aggregate([
     { $match: { difficulty: selectedDifficulty, isActive: true } },
     { $sample: { size: 1 } }
@@ -251,9 +326,16 @@ export async function startRoomByCode(code, requesterId = null) {
 
   if (!problemDocs || problemDocs.length === 0) {
     problemDocs = await CodingProblem.aggregate([
-      { $match: { isActive: true } },
+      { $match: { difficulty: selectedDifficulty } },
       { $sample: { size: 1 } }
     ]);
+  }
+
+  if (!problemDocs || problemDocs.length === 0) {
+    const err = new Error(`No problem available for difficulty: ${selectedDifficulty}`);
+    err.statusCode = 404;
+    err.code = 'NO_PROBLEM_FOUND';
+    throw err;
   }
 
   const selectedProblem = problemDocs[0];
@@ -294,6 +376,9 @@ export async function startRoomByCode(code, requesterId = null) {
   room.status = 'in_progress';
   room.startedAt = startedAt;
   room.questions = selectedProblem ? [selectedProblem] : [];
+  room.difficulty = selectedDifficulty;
+  room.duration = durationSeconds;
+  room.timeLimit = room.timeLimit;
   await room.save();
 
   return room.toJSON ? room.toJSON() : room;

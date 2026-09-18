@@ -2,7 +2,7 @@ import { asyncHandler } from '../middleware/errorHandler.js';
 import * as roomService from '../services/roomService.js';
 
 export const create = asyncHandler(async (req, res) => {
-  const { hostId, hostName, difficulty, timeLimit, questions } = req.body;
+  let { hostId, hostName, difficulty = 'Medium', timeLimit = '10:00', duration, questions } = req.body;
 
   if (!hostId || !hostName) {
     return res.status(400).json({
@@ -12,11 +12,45 @@ export const create = asyncHandler(async (req, res) => {
     });
   }
 
+  // Validate difficulty
+  if (difficulty && !['Easy', 'Medium', 'Hard'].includes(difficulty)) {
+    return res.status(400).json({
+      success: false,
+      error: 'VALIDATION_ERROR',
+      message: 'Difficulty must be Easy, Medium, or Hard'
+    });
+  }
+
+  // Normalize and validate duration / timeLimit
+  let normalizedTime = timeLimit;
+  if (typeof normalizedTime === 'number') {
+    normalizedTime = `${normalizedTime < 10 ? '0' : ''}${normalizedTime}:00`;
+  }
+  if (normalizedTime && normalizedTime.length === 4) {
+    normalizedTime = `0${normalizedTime}`;
+  }
+  if (normalizedTime && !['05:00', '10:00', '15:00'].includes(normalizedTime)) {
+    return res.status(400).json({
+      success: false,
+      error: 'VALIDATION_ERROR',
+      message: 'Duration must be 5, 10, or 15 minutes'
+    });
+  }
+
+  let durationSec = duration;
+  if (typeof durationSec === 'number' && [5, 10, 15].includes(durationSec)) {
+    durationSec *= 60;
+  }
+  if (!durationSec && normalizedTime) {
+    durationSec = normalizedTime === '05:00' ? 300 : normalizedTime === '10:00' ? 600 : 900;
+  }
+
   const room = await roomService.createRoom({
     hostId,
     hostName,
-    difficulty,
-    timeLimit,
+    difficulty: difficulty || 'Medium',
+    timeLimit: normalizedTime || '10:00',
+    duration: durationSec || 600,
     questions
   });
 
@@ -33,11 +67,49 @@ export const create = asyncHandler(async (req, res) => {
 
 export const updateSettings = asyncHandler(async (req, res) => {
   const { code } = req.params;
-  const { difficulty, timeLimit, hostId } = req.body;
+  const { difficulty, timeLimit, duration, hostId } = req.body;
+
+  if (difficulty && !['Easy', 'Medium', 'Hard'].includes(difficulty)) {
+    return res.status(400).json({
+      success: false,
+      error: 'VALIDATION_ERROR',
+      message: 'Difficulty must be Easy, Medium, or Hard'
+    });
+  }
+
+  if (timeLimit) {
+    let normalizedTime = timeLimit;
+    if (typeof normalizedTime === 'number') {
+      normalizedTime = `${normalizedTime < 10 ? '0' : ''}${normalizedTime}:00`;
+    }
+    if (normalizedTime && normalizedTime.length === 4) {
+      normalizedTime = `0${normalizedTime}`;
+    }
+    if (!['05:00', '10:00', '15:00'].includes(normalizedTime)) {
+      return res.status(400).json({
+        success: false,
+        error: 'VALIDATION_ERROR',
+        message: 'Duration must be 5, 10, or 15 minutes'
+      });
+    }
+  }
+
+  if (duration !== undefined) {
+    let durSec = duration;
+    if (typeof durSec === 'number' && [5, 10, 15].includes(durSec)) durSec *= 60;
+    if (![300, 600, 900].includes(durSec)) {
+      return res.status(400).json({
+        success: false,
+        error: 'VALIDATION_ERROR',
+        message: 'Duration must be 5, 10, or 15 minutes'
+      });
+    }
+  }
 
   const room = await roomService.updateRoomSettings(code, {
     difficulty,
     timeLimit,
+    duration,
     hostId: hostId || req.user?.id
   });
 

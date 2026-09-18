@@ -31,7 +31,21 @@ export const createMatch = asyncHandler(async (req, res) => {
 
     const normalizedTimeLimit = `${Math.floor(duration / 60) < 10 ? '0' : ''}${Math.floor(duration / 60)}:00`;
 
-    const match = new Match({
+    let match = await Match.findOne({ roomCode: roomCode.toUpperCase() });
+    if (match) {
+      if (questions && questions.length > 0 && (!match.problems || match.problems.length === 0)) {
+        match.problems = questions;
+        await match.save();
+      }
+      await match.populate('problems');
+      return res.status(201).json({
+        success: true,
+        match,
+        data: { match }
+      });
+    }
+
+    match = new Match({
       roomCode: roomCode.toUpperCase(),
       type,
       isPrivate: type === 'private' || type === 'scrimmage',
@@ -49,6 +63,7 @@ export const createMatch = asyncHandler(async (req, res) => {
     });
 
     await match.save();
+    await match.populate('problems');
 
     return res.status(201).json({
       success: true,

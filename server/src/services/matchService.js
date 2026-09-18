@@ -352,9 +352,11 @@ export async function completeMatch(matchId) {
   match.isDraw = outcome.isDraw;
   match.result = outcome.result;
   match.completedAt = new Date();
-  match.duration = match.startedAt
-    ? Math.max(1, Math.floor((match.completedAt - match.startedAt) / 1000))
-    : match.duration || 0;
+  if (!match.duration) {
+    match.duration = match.startedAt
+      ? Math.max(1, Math.floor((match.completedAt - match.startedAt) / 1000))
+      : 600;
+  }
 
   if (!match.rewardsAwarded) {
     match.rewardsAwarded = true;
