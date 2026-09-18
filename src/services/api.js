@@ -152,11 +152,15 @@ export const roomAPI = {
 
 // ============== MATCH APIs ==============
 export const matchAPI = {
-  createMatch: (roomCode, player1, player2, questions) =>
-    apiRequest('/matches/create', {
+  createMatch: (roomCodeOrPayload, player1, player2, questions) => {
+    const payload = typeof roomCodeOrPayload === 'object' && roomCodeOrPayload !== null
+      ? roomCodeOrPayload
+      : { roomCode: roomCodeOrPayload, player1, player2, questions };
+    return apiRequest('/matches/create', {
       method: 'POST',
-      body: JSON.stringify({ roomCode, player1, player2, questions }),
-    }),
+      body: JSON.stringify(payload),
+    });
+  },
 
   createRankedMatch: (type = 'ranked') =>
     apiRequest('/matches', {
@@ -176,10 +180,10 @@ export const matchAPI = {
       body: JSON.stringify({ winner, scores }),
     }),
 
-  abandonMatch: (matchId, playerId) =>
+  abandonMatch: (matchId, playerId, extra = {}) =>
     apiRequest(`/matches/${matchId}/abandon`, {
       method: 'POST',
-      body: JSON.stringify({ playerId }),
+      body: JSON.stringify({ playerId, ...extra }),
     }),
 
   getMatch: (id) =>
@@ -191,9 +195,13 @@ export const matchAPI = {
 
 // ============== MATCHMAKING APIs ==============
 export const matchmakingAPI = {
-  joinQueue: () =>
+  joinQueue: (config = {}) =>
     apiRequest('/matchmaking/join', {
       method: 'POST',
+      body: JSON.stringify({
+        questionCount: config?.questionCount ?? 1,
+        duration: config?.duration ?? 10
+      }),
     }),
 
   leaveQueue: () =>

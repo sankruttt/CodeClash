@@ -24,6 +24,7 @@ dotenv.config();
 import { connectDatabase, isMongoConnected } from '../config/database.js';
 import CodingProblem from '../models/CodingProblem.js';
 import TestCase from '../models/TestCase.js';
+import { starterCodesByTitle } from '../config/starterCodes.js';
 
 // ═══════════════════════════════════════════════════════════════════
 // PROBLEM DEFINITIONS
@@ -682,7 +683,11 @@ async function seed() {
 
   for (const problemData of problems) {
     try {
-      const problem = await CodingProblem.create(problemData);
+      const dataToCreate = {
+        ...problemData,
+        starterCode: starterCodesByTitle[problemData.title] || problemData.starterCode
+      };
+      const problem = await CodingProblem.create(dataToCreate);
       totalProblemsCreated++;
 
       const tc = testCasesData[problemData.title];

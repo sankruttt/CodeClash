@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { getTierDetails } from '../utils/tierUtils';
 import { leaderboardAPI, problemAPI } from '../services/api';
 import StreakCard from '../components/StreakCard';
+import { formatGameTime } from './HistoryView';
 
 export default function DashboardView({ navigate, queueing, setQueueing, onToggleQueue, currentUser }) {
   const rating = currentUser?.rating || 1500;
@@ -24,7 +25,7 @@ export default function DashboardView({ navigate, queueing, setQueueing, onToggl
 
   const toggleQueue = () => {
     if (onToggleQueue) {
-      onToggleQueue();
+      onToggleQueue({ questionCount: 1, duration: 10 });
     } else if (!queueing) {
       setQueueSeconds(0);
       setQueueing(true);
@@ -67,8 +68,10 @@ export default function DashboardView({ navigate, queueing, setQueueing, onToggl
                 const diff = h.difficulty || 'MED';
                 const diffColor =
                   diff.toUpperCase() === 'HARD' ? 'indigo' : diff.toUpperCase() === 'EASY' ? 'emerald' : 'amber';
-                const isWin = h.result === 'WIN' || h.result === 'VICTORY';
-                const delta = h.ratingChange ?? (isWin ? 24 : -18);
+                const upperResult = (h.result || '').toUpperCase();
+                const isWin = upperResult === 'WIN' || upperResult === 'VICTORY';
+                const isDraw = upperResult === 'DRAW';
+                const delta = h.ratingChange ?? (isWin ? 24 : isDraw ? 0 : -18);
                 const lpStr = (delta >= 0 ? `+${delta}` : `${delta}`) + ' LP';
 
                 return {
@@ -79,10 +82,10 @@ export default function DashboardView({ navigate, queueing, setQueueing, onToggl
                   problem: h.problemTitle || 'Algorithmic Duel',
                   diff: diff.toUpperCase().slice(0, 4),
                   diffColor,
-                  result: isWin ? 'VICTORY' : 'DEFEAT',
+                  result: isWin ? 'VICTORY' : (isDraw ? 'DRAW' : 'DEFEAT'),
                   lp: lpStr,
-                  time: h.duration ? `${Math.floor(h.duration / 60)}:${(h.duration % 60).toString().padStart(2, '0')}` : '04:12',
-                  date: h.createdAt ? new Date(h.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recent',
+                  time: h.duration ? `${Math.floor(h.duration / 60)}:${(h.duration % 60).toString().padStart(2, '0')}` : '00:30',
+                  date: formatGameTime(h.startedAt || h.createdAt),
                 };
               })
             );
@@ -270,7 +273,9 @@ export default function DashboardView({ navigate, queueing, setQueueing, onToggl
                             <span
                               className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${m.result === 'VICTORY'
                                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                : 'bg-rose-50 text-rose-700 border-rose-200'
+                                : m.result === 'DRAW'
+                                  ? 'bg-slate-50 text-slate-600 border-slate-200'
+                                  : 'bg-rose-50 text-rose-700 border-rose-200'
                                 }`}
                             >
                               {m.result}
@@ -284,8 +289,9 @@ export default function DashboardView({ navigate, queueing, setQueueing, onToggl
                               {m.lp}
                             </span>
                           </td>
-                          <td className="py-3 text-right text-slate-500 font-medium">
-                            {m.time}
+                          <td className="py-3 text-right">
+                            <span className="text-slate-700 font-medium font-mono text-xs block">{m.time}</span>
+                            <span className="text-[10px] text-slate-400 font-sans block">{m.date}</span>
                           </td>
                         </tr>
                       ))

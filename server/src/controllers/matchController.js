@@ -16,11 +16,29 @@ import { asyncHandler } from '../middleware/errorHandler.js';
 export const createMatch = asyncHandler(async (req, res) => {
   // Support frontend matchAPI.createMatch({ roomCode, player1, player2, questions })
   if (req.body.roomCode && (req.body.player1 || req.body.player2)) {
-    const { roomCode, player1, player2, questions } = req.body;
+    let { roomCode, player1, player2, questions, type = 'private', duration = 600, difficulty = 'Medium', timeLimit, questionCount } = req.body;
+    
+    if ([5, 10, 15].includes(Number(duration))) {
+      duration = Number(duration) * 60;
+    }
+    if (![300, 600, 900].includes(Number(duration))) {
+      duration = 600;
+    }
+
+    const qCount = [1, 2, 3].includes(parseInt(questionCount, 10))
+      ? parseInt(questionCount, 10)
+      : (Array.isArray(questions) && questions.length > 0 ? questions.length : 1);
+
+    const normalizedTimeLimit = `${Math.floor(duration / 60) < 10 ? '0' : ''}${Math.floor(duration / 60)}:00`;
+
     const match = new Match({
       roomCode: roomCode.toUpperCase(),
-      type: 'private',
-      isPrivate: true,
+      type,
+      isPrivate: type === 'private' || type === 'scrimmage',
+      difficulty,
+      timeLimit: timeLimit || normalizedTimeLimit,
+      duration,
+      questionCount: qCount,
       status: 'ACTIVE',
       players: [
         { ...(player1 || {}), userId: player1?.id || player1?.userId, solved: [], totalTime: 0, status: 'ACTIVE' },
@@ -40,13 +58,14 @@ export const createMatch = asyncHandler(async (req, res) => {
   }
 
   // Standard creation
-  const { type = 'private', duration, difficulty, problemIds } = req.body;
+  const { type = 'private', duration, difficulty, problemIds, questionCount } = req.body;
   const userId = req.user?.id || req.body.hostId || 'guest_host';
 
   const match = await createPrivateMatch(userId, type, {
     duration,
     difficulty,
-    problemIds
+    problemIds,
+    questionCount
   });
 
   res.status(201).json({
@@ -141,17 +160,6 @@ export const completeBattle = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const completedMatch = await completeMatch(id);
 
-  for (const player of completedMatch.players) {
-    const opponent = completedMatch.players.find(
-      (p) => String(p.userId) !== String(player.userId)
-    );
-    if (player.userId) {
-      await updatePlayerStatsAfterMatch(player.userId, completedMatch, player);
-      await addMatchHistory(player.userId, completedMatch, player, opponent);
-      await recordUserActivity(player.userId).catch(() => null);
-    }
-  }
-
   res.json({
     success: true,
     message: 'Match completed',
@@ -163,8 +171,10 @@ export const completeBattle = asyncHandler(async (req, res) => {
 export const abandonBattle = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const userId = req.user?.id || req.body?.playerId;
+  const problemTitle = req.body?.problemTitle;
+  const difficulty = req.body?.difficulty;
 
-  const match = await abandonMatch(id, userId);
+  const match = await abandonMatch(id, userId, { problemTitle, difficulty });
 
   res.json({
     success: true,

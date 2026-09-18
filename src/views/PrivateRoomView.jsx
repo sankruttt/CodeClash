@@ -409,7 +409,7 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
                 Time Limit
               </span>
               <div className="flex items-center gap-1">
-                {['05:00', '10:00', '15:00', '20:00'].map((time) => (
+                {['05:00', '10:00', '15:00'].map((time) => (
                   <button
                     key={time}
                     disabled={!isOwner}
@@ -420,7 +420,7 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
                         : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-white'
                     } ${isOwner ? 'cursor-pointer' : 'cursor-default opacity-85'}`}
                   >
-                    {time}
+                    {time === '05:00' ? '5 Min' : time === '10:00' ? '10 Min' : '15 Min'}
                   </button>
                 ))}
               </div>

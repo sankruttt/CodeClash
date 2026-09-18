@@ -1,6 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { leaderboardAPI, matchAPI } from '../services/api';
 
+export function formatGameTime(dateVal) {
+  if (!dateVal) return 'Recent';
+  try {
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return 'Recent';
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    const timeStr = d.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+    if (isToday) {
+      return `Today, ${timeStr}`;
+    }
+    return d.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+    }) + `, ${timeStr}`;
+  } catch {
+    return 'Recent';
+  }
+}
+
 export default function HistoryView({ navigate, currentUser }) {
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchFilter, setSearchFilter] = useState('');
@@ -22,25 +46,26 @@ export default function HistoryView({ navigate, currentUser }) {
             setMatches(
               historyData.map((m, idx) => {
                 const diff = m.difficulty || 'MED';
-                const isWin = m.result === 'win' || m.result === 'VICTORY';
-                const delta = m.ratingChange ?? (isWin ? 24 : -18);
+                const upperResult = (m.result || '').toUpperCase();
+                const isWin = upperResult === 'WIN' || upperResult === 'VICTORY';
+                const isDraw = upperResult === 'DRAW';
+                const delta = m.ratingChange ?? (isWin ? 24 : isDraw ? 0 : -24);
                 const lpStr = (delta >= 0 ? `+${delta}` : `${delta}`) + ' LP';
+                const rawDate = m.startedAt || m.createdAt;
                 return {
                   id: m._id || m.id || idx,
                   opponent: m.opponentName || 'Adversary',
                   opponentAvatar: m.opponentAvatar || (m.opponentName || 'VS').slice(0, 2).toUpperCase(),
                   opponentTier: m.opponentTier || 'Diamond',
-                  result: isWin ? 'VICTORY' : 'DEFEAT',
-                  score: `${m.problemsSolved ?? 1} / ${(m.problemsSolved ?? 1) + 1}`,
+                  result: isWin ? 'VICTORY' : (isDraw ? 'DRAW' : 'DEFEAT'),
+                  score: `${m.problemsSolved ?? 0} / ${(m.problemsSolved ?? 0) + 1}`,
                   lp: lpStr,
-                  time: m.duration ? `${Math.floor(m.duration / 60)}:${(m.duration % 60).toString().padStart(2, '0')}` : '04:12',
-                  problem: m.problemTitle || 'Algorithmic Duel',
+                  time: m.duration ? `${Math.floor(m.duration / 60)}:${(m.duration % 60).toString().padStart(2, '0')}` : '00:30',
+                  problem: m.problemTitle || (m.problems?.[0]?.title) || 'Algorithmic Duel',
                   diff: diff.toUpperCase().slice(0, 4),
                   diffColor:
                     diff.toUpperCase() === 'HARD' ? 'indigo' : diff.toUpperCase() === 'EASY' ? 'emerald' : 'amber',
-                  date: m.createdAt
-                    ? new Date(m.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-                    : 'Recent',
+                  date: formatGameTime(rawDate),
                   type: m.matchType === 'scrimmage' || m.matchType === 'Private Scrimmage' ? 'Scrimmage' : 'Ranked',
                 };
               })
@@ -57,6 +82,7 @@ export default function HistoryView({ navigate, currentUser }) {
                   const isP1 = currentUser?.id && p1.id === currentUser.id;
                   const opponent = isP1 ? p2 : p1;
                   const isWin = m.winner && (isP1 ? m.winner === p1.id : m.winner === opponent.id);
+                  const rawDate = m.startedAt || m.createdAt;
                   return {
                     id: m._id || m.id || idx,
                     opponent: opponent.name || opponent.username || 'System Agent',
@@ -69,7 +95,7 @@ export default function HistoryView({ navigate, currentUser }) {
                     problem: m.questions?.[0]?.title || 'Algorithmic Clash',
                     diff: 'MED',
                     diffColor: 'amber',
-                    date: m.createdAt ? new Date(m.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Recent',
+                    date: formatGameTime(rawDate),
                     type: m.type === 'scrimmage' ? 'Scrimmage' : 'Ranked',
                   };
                 })
@@ -263,7 +289,10 @@ export default function HistoryView({ navigate, currentUser }) {
                       <span className="font-bold text-slate-900 font-sans text-sm">{match.opponent}</span>
                       <span className="text-[10px] text-slate-400">({match.opponentTier})</span>
                     </div>
-                    <div className="text-[11px] text-slate-400">{match.date}</div>
+                    <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+                      <span className="material-symbols-outlined text-[13px] text-indigo-500">schedule</span>
+                      <span className="font-sans font-medium text-slate-600">Played: {match.date}</span>
+                    </div>
                   </div>
                 </div>
 
@@ -282,8 +311,12 @@ export default function HistoryView({ navigate, currentUser }) {
                       {match.diff}
                     </span>
                   </div>
-                  <div className="text-xs text-slate-500 font-mono mt-0.5">
-                    Solved in {match.time} • Tests: {match.score}
+                  <div className="text-xs text-slate-500 font-mono mt-0.5 flex items-center gap-2">
+                    <span>{match.result === 'VICTORY' ? `Solved in ${match.time}` : `Duration: ${match.time}`}</span>
+                    <span className="text-slate-300">•</span>
+                    <span>Tests: {match.score}</span>
+                    <span className="text-slate-300">•</span>
+                    <span className="text-indigo-600 font-medium">{match.type}</span>
                   </div>
                 </div>
 
@@ -293,7 +326,9 @@ export default function HistoryView({ navigate, currentUser }) {
                       className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
                         match.result === 'VICTORY'
                           ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                          : 'bg-rose-50 text-rose-700 border-rose-200'
+                          : match.result === 'DRAW'
+                            ? 'bg-slate-50 text-slate-600 border-slate-200'
+                            : 'bg-rose-50 text-rose-700 border-rose-200'
                       }`}
                     >
                       {match.result}

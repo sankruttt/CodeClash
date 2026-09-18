@@ -3,8 +3,9 @@ import { asyncHandler } from '../middleware/errorHandler.js';
 
 export const joinMatchmaking = asyncHandler(async (req, res) => {
   const userId = req.user.id;
+  const { questionCount = 1, duration = 10 } = req.body || {};
   
-  await joinQueue(userId);
+  await joinQueue(userId, { questionCount, duration });
   
   // Try to find an immediate match
   const match = await findMatch(userId);

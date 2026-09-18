@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { compilerAPI, problemAPI, matchAPI, roomAPI } from '../services/api';
+import React, { useState, useEffect, useCallback } from 'react';
+import { compilerAPI, problemAPI, matchAPI, roomAPI, authAPI } from '../services/api';
+import MatchCompleteModal from '../components/MatchCompleteModal';
 
 const fallbackCode = `function search(nums, target) {
   // Binary Search Implementation
@@ -30,12 +31,69 @@ const parseDurationSeconds = (val) => {
   return 15 * 60;
 };
 
-export default function ArenaView({ navigate, currentUser, activeMatch, onExitArena }) {
-  const [problem, setProblem] = useState(activeMatch?.problemData || null);
+// Defensive helper to ensure starter code has proper multiline newlines
+const normalizeCodeFormat = (raw) => {
+  if (!raw || typeof raw !== 'string') return '';
+  let formatted = raw;
+  if (formatted.includes('\\n')) {
+    formatted = formatted.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n');
+  }
+  return formatted;
+};
+
+const getStarterCodeForLang = (lang, p) => {
+  const l = (lang || '').toLowerCase();
+  let raw = '';
+  if (l === 'c') {
+    raw = p?.starterCode?.c || `#include <stdio.h>\n\nint main() {\n    return 0;\n}\n`;
+  } else if (l.includes('c++') || l.includes('cpp')) {
+    raw = p?.starterCode?.cpp || `#include <iostream>\nusing namespace std;\n\nint main() {\n    return 0;\n}\n`;
+  } else if (l.includes('java')) {
+    raw = p?.starterCode?.java || `import java.util.*;\n\npublic class Solution {\n    public static void main(String[] args) {\n    }\n}\n`;
+  } else if (l.includes('python')) {
+    raw = p?.starterCode?.python || `def solve():\n    pass\n\nif __name__ == '__main__':\n    solve()\n`;
+  } else {
+    raw = p?.starterCode?.javascript || fallbackCode;
+  }
+  return normalizeCodeFormat(raw);
+};
+
+export default function ArenaView({ navigate, currentUser, activeMatch, onCleanExit, onTriggerForfeit, onForfeit, onMatchComplete }) {
+  const initialProblems = Array.isArray(activeMatch?.problems) && activeMatch.problems.length > 0
+    ? activeMatch.problems
+    : activeMatch?.problemData
+    ? [activeMatch.problemData]
+    : [];
+
+  const [problems, setProblems] = useState(initialProblems);
+  const [activeProblemIndex, setActiveProblemIndex] = useState(0);
+  const [solvedProblemIds, setSolvedProblemIds] = useState(new Set());
+
+  const problem = problems[activeProblemIndex] || null;
+  const activeProblemId = problem?._id || problem?.id || `prob_${activeProblemIndex}`;
+
   const [selectedLanguage, setSelectedLanguage] = useState('JavaScript');
-  const [code, setCode] = useState(() => {
-    return activeMatch?.problemData?.starterCode?.javascript || fallbackCode;
+  const [codeByProblem, setCodeByProblem] = useState(() => {
+    const map = {};
+    initialProblems.forEach((p, idx) => {
+      const pid = p?._id || p?.id || `prob_${idx}`;
+      const raw = p?.starterCode?.javascript || fallbackCode;
+      map[pid] = normalizeCodeFormat(raw);
+    });
+    return map;
   });
+
+  const code = codeByProblem[activeProblemId] !== undefined
+    ? codeByProblem[activeProblemId]
+    : normalizeCodeFormat(getStarterCodeForLang(selectedLanguage, problem));
+
+  const setCode = (newCode) => {
+    setCodeByProblem((prev) => ({
+      ...prev,
+      [activeProblemId]: newCode
+    }));
+  };
+
   const [activeCaseIndex, setActiveCaseIndex] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -57,34 +115,101 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
   const [pastSubmissions, setPastSubmissions] = useState([]);
   const [isAbandoned, setIsAbandoned] = useState(false);
 
-  // Fetch problem if not present in activeMatch
+  // Match completion and finalization state
+  const [isCompleted, setIsCompleted] = useState(false);
+  const [matchResult, setMatchResult] = useState(null);
+  const [isFinalizing, setIsFinalizing] = useState(false);
+  const [hasSolved, setHasSolved] = useState(false);
+  const [solveTime, setSolveTime] = useState(null);
+  const [opponentSolved, setOpponentSolved] = useState(false);
+  const [opponentSolveTime, setOpponentSolveTime] = useState(null);
+
+  // Fetch problems if not present in activeMatch
   useEffect(() => {
-    if (!problem) {
-      problemAPI.getRandomProblems(1)
+    if (problems.length === 0) {
+      const count = activeMatch?.questionCount || 1;
+      problemAPI.getRandomProblems(count)
         .then((res) => {
-          const p = res?.data?.problems?.[0] || res?.data?.[0];
-          if (p) {
-            setProblem(p);
-            if (p.starterCode?.javascript) {
-              setCode(p.starterCode.javascript);
-            }
+          const list = Array.isArray(res?.data?.problems)
+            ? res.data.problems
+            : Array.isArray(res?.data)
+            ? res.data
+            : res?.data?.problem
+            ? [res.data.problem]
+            : [];
+          if (list.length > 0) {
+            setProblems(list);
+            setCodeByProblem((prev) => {
+              const map = { ...prev };
+              list.forEach((p, idx) => {
+                const pid = p?._id || p?.id || `prob_${idx}`;
+                if (map[pid] === undefined) {
+                  map[pid] = normalizeCodeFormat(p?.starterCode?.javascript || fallbackCode);
+                }
+              });
+              return map;
+            });
           }
         })
         .catch((err) => console.warn('Problem fetch notice:', err));
     }
-  }, [problem]);
+  }, [problems.length, activeMatch]);
 
   // Countdown timer based on server duration
   useEffect(() => {
-    if (isAbandoned) return;
+    if (isAbandoned || isCompleted) return;
     const timer = setInterval(() => {
       setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
     return () => clearInterval(timer);
-  }, [isAbandoned]);
+  }, [isAbandoned, isCompleted]);
 
-  // Real-time polling for opponent abandonment
+  // Authoritative backend finalization triggered when timer reaches 00:00
+  const handleFinalizeMatch = useCallback(async () => {
+    if (isCompleted || isFinalizing) return;
+    setIsFinalizing(true);
+    const matchId = activeMatch?.matchId || activeMatch?.id || activeMatch?.roomCode;
+    try {
+      if (matchId) {
+        const res = await matchAPI.completeMatch(matchId).catch(() => null);
+        const completedData = res?.data?.match || res?.match || res?.data;
+        if (completedData) {
+          setMatchResult(completedData);
+          setIsCompleted(true);
+          authAPI.getMe().catch(() => null);
+          return;
+        }
+      }
+      const mRes = await matchAPI.getMatch(matchId).catch(() => null);
+      const m = mRes?.data?.match || mRes?.match || mRes;
+      if (m) {
+        setMatchResult(m);
+        setIsCompleted(true);
+        authAPI.getMe().catch(() => null);
+      }
+    } catch (err) {
+      console.warn('Finalization notice:', err?.message || err);
+    } finally {
+      setIsFinalizing(false);
+    }
+  }, [activeMatch, isCompleted, isFinalizing]);
+
   useEffect(() => {
+    if (timeLeft === 0 && !isCompleted && !isAbandoned) {
+      handleFinalizeMatch();
+    }
+  }, [timeLeft, isCompleted, isAbandoned, handleFinalizeMatch]);
+
+  // Refresh user data from MongoDB after match completion so LP is up-to-date everywhere
+  useEffect(() => {
+    if (isCompleted && onMatchComplete) {
+      onMatchComplete();
+    }
+  }, [isCompleted, onMatchComplete]);
+
+  // Real-time polling for opponent progress, match completion, and abandonment
+  useEffect(() => {
+    if (isCompleted || isAbandoned) return;
     const roomCode = activeMatch?.roomCode;
     const matchId = activeMatch?.matchId || activeMatch?.id;
 
@@ -94,19 +219,86 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
 
     const checkStatus = async () => {
       try {
-        if (roomCode) {
+        const targetId = matchId || roomCode;
+        if (targetId) {
+          const mRes = await matchAPI.getMatch(targetId).catch(() => null);
+          const m = mRes?.data?.match || mRes?.match;
+          if (m && isMounted) {
+            if (m.status === 'COMPLETED') {
+              setMatchResult(m);
+              setIsCompleted(true);
+              setIsAbandoned(false);
+              const stored = sessionStorage.getItem('codeclash_active_match');
+              if (stored) {
+                try {
+                  const parsed = JSON.parse(stored);
+                  sessionStorage.setItem('codeclash_active_match', JSON.stringify({ ...parsed, status: 'completed', isCompleted: true }));
+                } catch {}
+              }
+              authAPI.getMe().catch(() => null);
+              return;
+            }
+            if (m.status === 'ABANDONED' || m.abandonedBy) {
+              setIsAbandoned(true);
+              const stored = sessionStorage.getItem('codeclash_active_match');
+              if (stored) {
+                try {
+                  const parsed = JSON.parse(stored);
+                  sessionStorage.setItem('codeclash_active_match', JSON.stringify({ ...parsed, status: 'abandoned', isAbandoned: true }));
+                } catch {}
+              }
+              return;
+            }
+
+            if (Array.isArray(m.players)) {
+              // Current player
+              const pMe = m.players.find(
+                (p) => (currentUser?.id && String(p.userId) === String(currentUser.id)) ||
+                       (currentUser?.username && p.username === currentUser.username)
+              );
+              if (pMe && pMe.problemsSolved > 0) {
+                setHasSolved(true);
+                if (pMe.completionTime || pMe.totalTime) {
+                  setSolveTime(pMe.completionTime || pMe.totalTime);
+                }
+              }
+
+              // Opponent
+              const pOpp = m.players.find(
+                (p) => (!currentUser?.id || String(p.userId) !== String(currentUser.id)) &&
+                       (!currentUser?.username || p.username !== currentUser.username)
+              );
+              if (pOpp && pOpp.problemsSolved > 0) {
+                setOpponentSolved(true);
+                if (pOpp.completionTime || pOpp.totalTime) {
+                  setOpponentSolveTime(pOpp.completionTime || pOpp.totalTime);
+                }
+              }
+            }
+          }
+        }
+
+        const isPrivateRoom = Boolean(
+          (activeMatch?.isPrivate ||
+           activeMatch?.type === 'scrimmage' ||
+           activeMatch?.type === 'private' ||
+           activeMatch?.type === 'Private Scrimmage') &&
+          !String(roomCode || '').startsWith('RK-')
+        );
+
+        if (roomCode && isPrivateRoom) {
           const res = await roomAPI.getRoom(roomCode).catch(() => null);
           const room = res?.data?.room || res?.data || res;
           if ((room?.status === 'abandoned' || room?.abandonedBy) && isMounted) {
             setIsAbandoned(true);
+            const stored = sessionStorage.getItem('codeclash_active_match');
+            if (stored) {
+              try {
+                const parsed = JSON.parse(stored);
+                sessionStorage.setItem('codeclash_active_match', JSON.stringify({ ...parsed, status: 'abandoned', isAbandoned: true }));
+              } catch {}
+            }
             return;
-          }
-        }
-        if (matchId && !String(matchId).startsWith('room_') && !String(matchId).startsWith('match_')) {
-          const mRes = await matchAPI.getMatch(matchId).catch(() => null);
-          const m = mRes?.data?.match || mRes?.data || mRes;
-          if ((m?.status === 'ABANDONED' || m?.abandonedBy) && isMounted) {
-            setIsAbandoned(true);
           }
         }
       } catch (err) {
@@ -114,12 +306,12 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
       }
     };
 
-    const interval = setInterval(checkStatus, 2000);
+    const interval = setInterval(checkStatus, 1500);
     return () => {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [activeMatch]);
+  }, [activeMatch, currentUser, isCompleted, isAbandoned]);
 
   const formatTimer = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -127,26 +319,13 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
     return `${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
-  const getStarterCodeForLang = (lang, p = problem) => {
-    const l = (lang || '').toLowerCase();
-    if (l === 'c') {
-      return p?.starterCode?.c || `#include <stdio.h>\n\nint main() {\n    return 0;\n}\n`;
-    }
-    if (l.includes('c++') || l.includes('cpp')) {
-      return p?.starterCode?.cpp || `#include <iostream>\nusing namespace std;\n\nint main() {\n    return 0;\n}\n`;
-    }
-    if (l.includes('java')) {
-      return p?.starterCode?.java || `import java.util.*;\n\npublic class Solution {\n    public static void main(String[] args) {\n    }\n}\n`;
-    }
-    if (l.includes('python')) {
-      return p?.starterCode?.python || `def solve():\n    pass\n\nif __name__ == '__main__':\n    solve()\n`;
-    }
-    return p?.starterCode?.javascript || fallbackCode;
-  };
-
   const handleLanguageChange = (newLang) => {
     setSelectedLanguage(newLang);
     setCode(getStarterCodeForLang(newLang, problem));
+  };
+
+  const handleResetCode = () => {
+    setCode(getStarterCodeForLang(selectedLanguage, problem));
   };
 
   const getNormalizedLang = () => {
@@ -172,10 +351,27 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
       setActiveCaseIndex(0);
 
       const isPass = data.status === 'Accepted';
+      const passedCount = data.passedTests ?? (isPass ? (data.testResults?.length || 1) : 0);
+      const totalCount = data.totalTests ?? (data.testResults?.length || testCases.length || 1);
+
+      // Record test run in pastSubmissions as TEST RUN so it appears in Submissions tab
+      setPastSubmissions((prev) => [
+        {
+          id: 'run_' + Date.now(),
+          type: 'RUN',
+          time: new Date().toLocaleTimeString(),
+          status: data.status || (isPass ? 'Accepted' : 'Failed'),
+          executionTime: data.executionTime || 50,
+          passedTests: passedCount,
+          totalTests: totalCount,
+        },
+        ...prev,
+      ]);
+
       setShowNotification(
         isPass
-          ? `✓ Code compiled & executed successfully (${data.executionTime}ms)!`
-          : `Execution: ${data.status}. Check results panel.`
+          ? `✓ Code execution passed: ${passedCount}/${totalCount} tests passed (${data.executionTime || 50}ms)!`
+          : `Execution: ${data.status} (${passedCount}/${totalCount} passed). Check results panel.`
       );
       setTimeout(() => setShowNotification(null), 4000);
     } catch (err) {
@@ -196,27 +392,116 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
       const lang = getNormalizedLang();
 
       const res = await compilerAPI.submitCode(matchId, problemId, code, lang, currentUser?.id);
-      const data = res?.data || res;
+      const rawData = res?.data || res;
+      const sub = rawData?.submission || rawData;
 
-      setExecutionResult(data);
+      const executionData = {
+        status: sub?.status || rawData?.status || 'Accepted',
+        executionTime: sub?.executionTime ?? rawData?.executionTime ?? 50,
+        passedTests: sub?.passedTests ?? rawData?.passedTests ?? 1,
+        totalTests: sub?.totalTests ?? rawData?.totalTests ?? 1,
+        testResults: sub?.testResults || rawData?.testResults || [],
+        output: sub?.output || rawData?.output || '',
+        error: sub?.errorMessage || sub?.error || rawData?.error || null,
+      };
+
+      setExecutionResult(executionData);
+      setActiveCaseIndex(0);
+
       setPastSubmissions((prev) => [
         {
-          id: Date.now(),
+          id: sub?.id || sub?._id || 'sub_' + Date.now(),
+          type: 'SUBMISSION',
           time: new Date().toLocaleTimeString(),
-          status: data.status || 'Accepted',
-          executionTime: data.executionTime || 50,
-          passedTests: data.passedTests ?? 1,
-          totalTests: data.totalTests ?? 1,
+          status: executionData.status,
+          executionTime: executionData.executionTime,
+          passedTests: executionData.passedTests,
+          totalTests: executionData.totalTests,
+          problemTitle: problem?.title || `Question ${activeProblemIndex + 1}`,
         },
         ...prev,
       ]);
 
-      setShowNotification(
-        data.status === 'Accepted'
-          ? '✓ Solution Accepted! Submissions recorded in database.'
-          : `Verdict: ${data.status}. Review execution output.`
-      );
-      setTimeout(() => setShowNotification(null), 4500);
+      if (executionData.status === 'Accepted' && executionData.passedTests === executionData.totalTests) {
+        const timeTaken = Math.max(1, totalMatchSeconds - timeLeft);
+        const nextSolved = new Set(solvedProblemIds);
+        nextSolved.add(activeProblemId);
+        setSolvedProblemIds(nextSolved);
+
+        const totalAssignedQuestions = activeMatch?.questionCount || problems.length || 1;
+        const isRanked = activeMatch?.isRanked ?? (activeMatch?.type !== 'Private Scrimmage');
+
+        if (isRanked) {
+          if (nextSolved.size >= totalAssignedQuestions) {
+            // RANKED: ALL QUESTIONS SOLVED -> MATCH ENDS IMMEDIATELY!
+            setHasSolved(true);
+            setSolveTime(timeTaken);
+            setShowNotification(`✓ Solution Accepted! All questions completed! Match Ends Immediately!`);
+
+            try {
+              const compRes = await matchAPI.completeMatch(matchId).catch(() => null);
+              const m = compRes?.data?.match || compRes?.match || rawData?.matchProgress?.match;
+              if (m) {
+                setMatchResult(m);
+                setIsCompleted(true);
+                authAPI.getMe().catch(() => null);
+                return;
+              }
+              const mRes = await matchAPI.getMatch(matchId).catch(() => null);
+              const m2 = mRes?.data?.match || mRes?.match;
+              if (m2) {
+                setMatchResult(m2);
+                setIsCompleted(true);
+                authAPI.getMe().catch(() => null);
+                return;
+              }
+            } catch (err) {
+              console.warn('Ranked instant completion notice:', err);
+            }
+          } else {
+            // RANKED: More questions remain
+            setShowNotification(`✓ Q${activeProblemIndex + 1} Accepted (${nextSolved.size}/${totalAssignedQuestions} completed)! Switching to next question...`);
+            const nextUnsolved = problems.findIndex((p, idx) => !nextSolved.has(p._id || p.id || `prob_${idx}`));
+            if (nextUnsolved !== -1) {
+              setActiveProblemIndex(nextUnsolved);
+              setActiveCaseIndex(0);
+              setExecutionResult(null);
+            }
+          }
+        } else {
+          // SCRIMMAGE: DO NOT END IMMEDIATELY!
+          if (nextSolved.size >= totalAssignedQuestions) {
+            setHasSolved(true);
+            setSolveTime(timeTaken);
+            setShowNotification(`✓ All questions solved! Finished in ${formatTimer(timeTaken)}. Waiting for opponent or timer...`);
+
+            try {
+              const checkRes = await matchAPI.getMatch(matchId).catch(() => null);
+              const m = checkRes?.data?.match || checkRes?.match;
+              if (m?.status === 'COMPLETED') {
+                setMatchResult(m);
+                setIsCompleted(true);
+                authAPI.getMe().catch(() => null);
+              }
+            } catch (err) {
+              // ignore
+            }
+          } else {
+            setShowNotification(`✓ Q${activeProblemIndex + 1} Accepted (${nextSolved.size}/${totalAssignedQuestions} completed)!`);
+            const nextUnsolved = problems.findIndex((p, idx) => !nextSolved.has(p._id || p.id || `prob_${idx}`));
+            if (nextUnsolved !== -1) {
+              setActiveProblemIndex(nextUnsolved);
+              setActiveCaseIndex(0);
+              setExecutionResult(null);
+            }
+          }
+        }
+      } else {
+        setShowNotification(
+          `Verdict: ${executionData.status} (${executionData.passedTests}/${executionData.totalTests} passed).`
+        );
+      }
+      setTimeout(() => setShowNotification(null), 5000);
     } catch (err) {
       setShowNotification(`Submission note: ${err.message}`);
       setTimeout(() => setShowNotification(null), 4500);
@@ -225,55 +510,54 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
     }
   };
 
-  const handleForfeit = async () => {
-    const roomCode = activeMatch?.roomCode;
-    const matchId = activeMatch?.matchId || activeMatch?.id;
-    const playerId = currentUser?.id || 'player';
-
-    try {
-      await Promise.allSettled([
-        roomCode ? roomAPI.abandonRoom(roomCode, playerId) : Promise.resolve(),
-        matchId ? matchAPI.abandonMatch(matchId, playerId) : Promise.resolve(),
-      ]);
-    } catch (err) {
-      console.warn('Forfeit notification notice:', err);
-    } finally {
-      if (onExitArena) {
-        onExitArena();
-      } else {
-        navigate('lobby');
-      }
+  const handleForfeit = () => {
+    if (isCompleted || isAbandoned) {
+      if (onCleanExit) onCleanExit('lobby');
+      else navigate('lobby');
+      return;
+    }
+    if (onTriggerForfeit) {
+      onTriggerForfeit();
+    } else if (onForfeit) {
+      onForfeit();
     }
   };
 
   const lineCount = code.split('\n').length;
   const lineNumbers = Array.from({ length: Math.max(lineCount, 25) }, (_, i) => i + 1);
 
-  const testCasesList = executionResult?.testResults || [
-    {
-      testCaseId: 'tc-1',
-      passed: true,
-      input: 'nums = [-1, 0, 3, 5, 9, 12], target = 9',
-      expectedOutput: '4',
-      actualOutput: '4',
-      error: null,
-    },
-    {
-      testCaseId: 'tc-2',
-      passed: true,
-      input: 'nums = [5], target = 5',
-      expectedOutput: '0',
-      actualOutput: '0',
-      error: null,
-    },
-  ];
+  const defaultTestCases = (problem?.examples && problem.examples.length > 0)
+    ? problem.examples.map((ex, idx) => ({
+        testCaseId: `tc-${idx + 1}`,
+        passed: true,
+        input: ex.input,
+        expectedOutput: ex.output,
+        actualOutput: ex.output,
+        error: null,
+      }))
+    : [
+        {
+          testCaseId: 'tc-1',
+          passed: true,
+          input: 'nums = [1, 2, 3], target = 2',
+          expectedOutput: '1',
+          actualOutput: '1',
+          error: null,
+        },
+      ];
+
+  const testCasesList =
+    executionResult?.testResults && executionResult.testResults.length > 0
+      ? executionResult.testResults
+      : defaultTestCases;
 
   const activeTestCase = testCasesList[activeCaseIndex] || testCasesList[0];
+
 
   return (
     <div className="flex-1 flex flex-col h-[calc(100vh-56px)] overflow-hidden min-w-0 pb-28 relative">
       {/* Abandonment Modal */}
-      {isAbandoned && (
+      {isAbandoned && !isCompleted && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl border border-slate-200 p-6 max-w-md w-full shadow-2xl space-y-4 font-mono">
             <div className="flex items-center gap-3 text-amber-600">
@@ -289,16 +573,34 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
             <button
               onClick={() => {
                 sessionStorage.removeItem('codeclash_active_match');
-                if (onExitArena) onExitArena();
+                if (onCleanExit) onCleanExit('lobby');
                 else navigate('lobby');
               }}
-              className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
+              className="w-full py-2.5 rounded-xl bg-white hover:bg-blue-50 hover:border-blue-500 hover:text-blue-600 active:bg-blue-100 text-slate-800 font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer border border-slate-200 shadow-2xs"
             >
               Return to Lobby
             </button>
           </div>
         </div>
       )}
+
+      {/* Authoritative Match Complete Result Modal */}
+      <MatchCompleteModal
+        isOpen={isCompleted && Boolean(matchResult)}
+        matchResult={matchResult}
+        currentUser={currentUser}
+        activeMatch={activeMatch}
+        problem={problem}
+        executionResult={executionResult}
+        hasSolved={hasSolved}
+        solveTime={solveTime}
+        opponentSolved={opponentSolved}
+        opponentSolveTime={opponentSolveTime}
+        formatTimer={formatTimer}
+        onCleanExit={onCleanExit}
+        navigate={navigate}
+      />
+
 
       {/* Battle Match HUD Bar */}
       <div className="h-12 bg-white border-b border-slate-200/80 px-4 sm:px-6 flex items-center justify-between shrink-0 shadow-2xs">
@@ -319,9 +621,16 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
               <span className="text-slate-400 text-[10px]">{(currentUser?.rating || 1500).toLocaleString()} LP</span>
             </div>
             <div className="flex items-center gap-1.5 mt-0.5 font-mono text-[10px]">
-              <span className="inline-flex items-center text-emerald-600 font-medium gap-0.5">
-                <span className="material-symbols-outlined text-[12px]">check</span> P1 (READY)
-              </span>
+              {hasSolved ? (
+                <span className="inline-flex items-center text-emerald-700 font-bold gap-1 px-1.5 py-0.2 rounded bg-emerald-50 border border-emerald-200">
+                  <span className="material-symbols-outlined text-[12px]">check_circle</span>
+                  SOLVED ({formatTimer(solveTime || 0)})
+                </span>
+              ) : (
+                <span className="inline-flex items-center text-emerald-600 font-medium gap-0.5">
+                  <span className="material-symbols-outlined text-[12px]">check</span> P1 (READY)
+                </span>
+              )}
               <span className="text-slate-300">•</span>
               <span className="inline-flex items-center text-indigo-600 gap-1 font-medium">
                 <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span> ONLINE
@@ -368,9 +677,16 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
               <span className="font-semibold text-slate-900">{activeMatch?.opponent || 'v0_Sniper'}</span>
             </div>
             <div className="flex items-center gap-1.5 mt-0.5 font-mono text-[10px] justify-end">
-              <span className="inline-flex items-center text-sky-600 gap-1 font-medium">
-                <span className="w-1.5 h-1.5 rounded-full bg-sky-500 animate-pulse"></span> IN ARENA
-              </span>
+              {opponentSolved ? (
+                <span className="inline-flex items-center text-emerald-700 font-bold gap-1 px-1.5 py-0.2 rounded bg-emerald-50 border border-emerald-200">
+                  <span className="material-symbols-outlined text-[12px]">check_circle</span>
+                  SOLVED ({formatTimer(opponentSolveTime || 0)})
+                </span>
+              ) : (
+                <span className="inline-flex items-center text-sky-600 gap-1 font-medium">
+                  <span className="w-1.5 h-1.5 rounded-full bg-sky-500 animate-pulse"></span> SOLVING...
+                </span>
+              )}
             </div>
           </div>
           <div className="relative">
@@ -382,10 +698,71 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
         </div>
       </div>
 
+      {/* Real-time Battle Status Notice */}
+      {hasSolved && !opponentSolved && !isCompleted && (
+        <div className="h-8 bg-amber-50 border-b border-amber-200 px-4 sm:px-6 flex items-center justify-between text-[11px] font-mono text-amber-900 shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-[14px] text-amber-600 animate-spin">hourglass_top</span>
+            <span>
+              <strong>✓ Solution Accepted ({formatTimer(solveTime || 0)})!</strong> Opponent is still solving. Match will finalize when opponent finishes or timer reaches 00:00.
+            </span>
+          </div>
+          <span className="px-2 py-0.2 rounded bg-amber-100 text-amber-800 font-bold text-[10px] uppercase border border-amber-300">
+            MATCH ACTIVE
+          </span>
+        </div>
+      )}
+
+      {isFinalizing && (
+        <div className="h-8 bg-indigo-50 border-b border-indigo-200 px-4 sm:px-6 flex items-center justify-center text-[11px] font-mono text-indigo-900 gap-2 shrink-0">
+          <span className="material-symbols-outlined text-[14px] text-indigo-600 animate-spin">sync</span>
+          <span>Match timer reached 00:00. Finalizing authoritative match results...</span>
+        </div>
+      )}
+
       {/* 3-Column Surgical IDE Workspace */}
       <main className="flex-1 grid grid-cols-12 overflow-hidden bg-slate-100">
         {/* Column 1: Problem Spec (4 cols) */}
         <section className="col-span-12 lg:col-span-4 flex flex-col border-r border-slate-200/80 bg-white overflow-hidden h-full">
+          {/* Multi-Question Selector Bar */}
+          {problems.length > 1 && (
+            <div className="h-10 bg-slate-50 border-b border-slate-200 px-3 flex items-center gap-1.5 shrink-0 overflow-x-auto">
+              <span className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wider pr-1">
+                Questions ({solvedProblemIds.size}/{problems.length}):
+              </span>
+              {problems.map((p, idx) => {
+                const pId = p?._id || p?.id || `prob_${idx}`;
+                const isSolved = solvedProblemIds.has(pId);
+                const isActive = activeProblemIndex === idx;
+                return (
+                  <button
+                    key={pId}
+                    type="button"
+                    onClick={() => {
+                      setActiveProblemIndex(idx);
+                      setActiveCaseIndex(0);
+                      setExecutionResult(null);
+                    }}
+                    className={`px-2.5 py-1 rounded text-xs font-mono font-semibold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                      isActive
+                        ? 'bg-white border-indigo-500 text-indigo-700 shadow-2xs'
+                        : isSolved
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                        : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    {isSolved ? (
+                      <span className="material-symbols-outlined text-[13px] text-emerald-600">check_circle</span>
+                    ) : (
+                      <span className="text-[11px] font-bold">Q{idx + 1}</span>
+                    )}
+                    <span className="truncate max-w-[90px]">{p.title || `Q${idx + 1}`}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {/* Tab Bar */}
           <div className="h-9 bg-slate-50 border-b border-slate-200 px-2 flex items-center justify-between shrink-0 font-mono text-xs">
             <div className="flex items-center gap-1">
@@ -497,24 +874,33 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
             </div>
           ) : (
             <div className="flex-1 overflow-y-auto p-4 space-y-3 text-xs font-mono bg-white">
-              <div className="font-semibold text-slate-800 text-sm">Submission History</div>
+              <div className="font-semibold text-slate-800 text-sm">Submission &amp; Run History</div>
               {pastSubmissions.length > 0 ? (
                 pastSubmissions.map((s) => (
-                  <div key={s.id} className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
+                  <div key={s.id} className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5 shadow-2xs">
                     <div className="flex justify-between items-center">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${s.status === 'Accepted' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
-                        {s.status}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider ${
+                          s.type === 'RUN' ? 'bg-slate-200 text-slate-700' : 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                        }`}>
+                          {s.type === 'RUN' ? 'TEST RUN' : 'SUBMIT'}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          s.status === 'Accepted' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-rose-100 text-rose-800 border border-rose-200'
+                        }`}>
+                          {s.status}
+                        </span>
+                      </div>
                       <span className="text-slate-400 text-[10px]">{s.time}</span>
                     </div>
-                    <div className="text-slate-600 text-[11px]">
-                      Tests Passed: {s.passedTests} / {s.totalTests} • Runtime: {s.executionTime}ms
+                    <div className="text-slate-600 text-[11px] font-mono">
+                      Tests Passed: <strong className={s.status === 'Accepted' ? 'text-emerald-700 font-bold' : 'text-slate-900 font-bold'}>{s.passedTests} / {s.totalTests}</strong> • Runtime: {s.executionTime}ms
                     </div>
                   </div>
                 ))
               ) : (
                 <div className="py-8 text-center text-slate-400">
-                  No submissions submitted yet in this session.
+                  No submissions or test runs executed yet in this session.
                 </div>
               )}
             </div>
@@ -526,6 +912,10 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
           {/* Editor Header Bar */}
           <div className="h-9 bg-slate-50 border-b border-slate-200 px-3 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
+              <span className="font-semibold text-slate-900 font-mono text-xs truncate max-w-[140px] sm:max-w-[180px]">
+                {problems.length > 1 ? `Q${activeProblemIndex + 1}: ` : ''}{problem?.title || 'Code Editor'}
+              </span>
+              <span className="text-slate-300">|</span>
               <select
                 value={selectedLanguage}
                 onChange={(e) => handleLanguageChange(e.target.value)}
@@ -537,12 +927,12 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
                 <option value="JavaScript">JavaScript (Deno)</option>
                 <option value="Python">Python (3.14)</option>
               </select>
-              <span className="text-[10px] font-mono text-slate-400">OnlineCompiler.io Active</span>
+              <span className="text-[10px] font-mono text-slate-400 hidden sm:inline">OnlineCompiler.io Active</span>
             </div>
 
             <div className="flex items-center gap-1 text-slate-500">
               <button
-                onClick={() => setCode(getStarterCodeForLang(selectedLanguage, problem))}
+                onClick={handleResetCode}
                 className="p-1 rounded hover:text-slate-900 hover:bg-slate-200 transition-colors cursor-pointer"
                 title="Reset Code Template"
               >
@@ -551,10 +941,10 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
             </div>
           </div>
 
-          {/* Editor Surface */}
-          <div className="flex-1 flex overflow-hidden bg-slate-900 font-mono text-xs text-slate-100">
+          {/* Editor Surface - White / Light Theme */}
+          <div className="flex-1 flex overflow-hidden bg-white font-mono text-xs text-slate-900 border-t border-slate-200">
             {/* Line Numbers */}
-            <div className="w-10 py-3 bg-slate-950 text-slate-600 select-none text-right pr-2 shrink-0 border-r border-slate-800 text-[11px] overflow-hidden">
+            <div className="w-11 py-3 bg-slate-50 text-slate-400 select-none text-right pr-2.5 shrink-0 border-r border-slate-200 text-[11px] overflow-hidden font-mono">
               {lineNumbers.map((num) => (
                 <div key={num} className="leading-5 h-5">
                   {num}
@@ -568,7 +958,7 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onExitAr
               onChange={(e) => setCode(e.target.value)}
               disabled={isAbandoned}
               spellCheck={false}
-              className="flex-1 p-3 bg-transparent text-slate-100 font-mono text-xs leading-5 resize-none focus:outline-none overflow-y-auto whitespace-pre selection:bg-indigo-700 selection:text-white disabled:opacity-50"
+              className="flex-1 p-3 bg-white text-slate-900 font-mono text-xs leading-5 resize-none focus:outline-none overflow-y-auto whitespace-pre caret-indigo-600 selection:bg-indigo-100 selection:text-indigo-900 disabled:opacity-50"
               style={{ tabSize: 2 }}
             />
           </div>

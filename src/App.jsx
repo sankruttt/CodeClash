@@ -60,6 +60,7 @@ export default function App() {
   });
 
   const [queueing, setQueueing] = useState(false);
+  const [queueConfig, setQueueConfig] = useState({ questionCount: 1, duration: 10 });
   const [activeMatch, setActiveMatch] = useState(() => {
     try {
       const stored = sessionStorage.getItem('codeclash_active_match');
@@ -74,14 +75,41 @@ export default function App() {
   const [pendingNavigationRoute, setPendingNavigationRoute] = useState(null);
   const [forfeitNotice, setForfeitNotice] = useState(null);
 
+  const isMatchInProgress = useCallback((matchObj) => {
+    if (!matchObj) return false;
+    if (matchObj.status === 'completed' || matchObj.status === 'COMPLETED' || matchObj.isCompleted) return false;
+    if (matchObj.status === 'abandoned' || matchObj.status === 'ABANDONED' || matchObj.isAbandoned) return false;
+    return true;
+  }, []);
+
+  const getStoredActiveMatch = useCallback(() => {
+    try {
+      const raw = sessionStorage.getItem('codeclash_active_match');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const navigate = useCallback((newRoute) => {
-    if (route === 'arena' && activeMatch && newRoute !== 'arena') {
+    const storedMatch = getStoredActiveMatch();
+    const matchOngoing = isMatchInProgress(activeMatch) && isMatchInProgress(storedMatch);
+
+    if (route === 'arena' && matchOngoing && newRoute !== 'arena') {
       setPendingNavigationRoute(newRoute);
       setConfirmExitModal(true);
       return;
     }
+
+    if (route === 'arena' && newRoute !== 'arena') {
+      sessionStorage.removeItem('codeclash_active_match');
+      setActiveMatch(null);
+      setConfirmExitModal(false);
+      setPendingNavigationRoute(null);
+    }
+
     window.location.hash = newRoute;
-  }, [route, activeMatch]);
+  }, [route, activeMatch, isMatchInProgress, getStoredActiveMatch]);
 
   // Sync hash routing & enforce landing page for unauthenticated users
   useEffect(() => {
@@ -98,12 +126,23 @@ export default function App() {
           }
         }
       } else {
-        if (route === 'arena' && activeMatch && hash !== 'arena') {
+        const storedMatch = getStoredActiveMatch();
+        const matchOngoing = isMatchInProgress(activeMatch) && isMatchInProgress(storedMatch);
+
+        if (route === 'arena' && matchOngoing && hash !== 'arena') {
           window.location.hash = 'arena';
           setPendingNavigationRoute(hash || 'dashboard');
           setConfirmExitModal(true);
           return;
         }
+
+        if (route === 'arena' && hash !== 'arena') {
+          sessionStorage.removeItem('codeclash_active_match');
+          setActiveMatch(null);
+          setConfirmExitModal(false);
+          setPendingNavigationRoute(null);
+        }
+
         setRoute(hash || 'dashboard');
       }
       window.scrollTo(0, 0);
@@ -111,7 +150,7 @@ export default function App() {
 
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
-  }, [route, activeMatch]);
+  }, [route, activeMatch, isMatchInProgress, getStoredActiveMatch]);
 
   // Route guard: When player hasn't signed in, redirect to landing page (or register)
   useEffect(() => {
@@ -203,7 +242,7 @@ export default function App() {
   }, []);
 
   // Queue simulation with real backend problem selection
-  const handleToggleQueue = async () => {
+  const handleToggleQueue = async (cfg = {}) => {
     if (queueing) {
       setQueueing(false);
       try {
@@ -212,9 +251,13 @@ export default function App() {
         console.warn('Failed to leave matchmaking queue:', err.message);
       }
     } else {
+      const qCount = [1, 2, 3].includes(Number(cfg?.questionCount)) ? Number(cfg.questionCount) : 1;
+      const dur = [5, 10, 15].includes(Number(cfg?.duration)) ? Number(cfg.duration) : 10;
+      const nextConfig = { questionCount: qCount, duration: dur };
+      setQueueConfig(nextConfig);
       setQueueing(true);
       try {
-        await matchmakingAPI.joinQueue();
+        await matchmakingAPI.joinQueue(nextConfig);
       } catch (err) {
         console.warn('Failed to join matchmaking queue:', err.message);
       }
@@ -227,31 +270,49 @@ export default function App() {
 
     const timer = setTimeout(async () => {
       try {
-        const probRes = await problemAPI.getRandomProblems(1);
-        const prob = probRes?.data?.problems?.[0] || probRes?.data?.[0];
-        const probTitle = prob?.title || 'Binary Search';
+        const qCount = queueConfig?.questionCount || 1;
+        const durMinutes = queueConfig?.duration || 10;
+        const durSeconds = durMinutes * 60;
+        const probRes = await problemAPI.getRandomProblems(qCount);
+        const problems = Array.isArray(probRes?.data?.problems)
+          ? probRes.data.problems
+          : Array.isArray(probRes?.data)
+          ? probRes.data
+          : probRes?.data?.problem
+          ? [probRes.data.problem]
+          : [];
+        const primaryProblem = problems[0] || null;
+        const probTitle = primaryProblem?.title || 'Algorithmic Duel';
 
         if (!isCancelled) {
           setQueueing(false);
+          matchmakingAPI.leaveQueue().catch(() => null);
           setMatchFoundModal({
             opponent: 'v0_Sniper',
             opponentRating: 2395,
             opponentAvatar: 'VS',
-            type: '1v1 Ranked Clash',
+            type: '1v1 Ranked Duel',
             problem: probTitle,
-            problemData: prob,
+            problemData: primaryProblem,
+            problems: problems,
+            questionCount: qCount,
+            duration: durSeconds,
             countdown: 3,
           });
         }
       } catch (err) {
         if (!isCancelled) {
           setQueueing(false);
+          matchmakingAPI.leaveQueue().catch(() => null);
           setMatchFoundModal({
             opponent: 'v0_Sniper',
             opponentRating: 2395,
             opponentAvatar: 'VS',
-            type: '1v1 Ranked Clash',
+            type: '1v1 Ranked Duel',
             problem: 'Binary Search',
+            problems: [],
+            questionCount: queueConfig?.questionCount || 1,
+            duration: (queueConfig?.duration || 10) * 60,
             countdown: 3,
           });
         }
@@ -262,7 +323,7 @@ export default function App() {
       isCancelled = true;
       clearTimeout(timer);
     };
-  }, [queueing]);
+  }, [queueing, queueConfig]);
 
   // Match Found countdown sequence (3 -> 2 -> 1 -> Arena)
   useEffect(() => {
@@ -276,15 +337,58 @@ export default function App() {
       }, 1000);
       return () => clearTimeout(cd);
     } else {
-      const cd = setTimeout(() => {
+      const cd = setTimeout(async () => {
+        let createdMatchId = null;
+        const generatedRoomCode = 'RK-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+        const durationSec = matchFoundModal.duration || 600;
+        const qCount = matchFoundModal.questionCount || matchFoundModal.problems?.length || 1;
+        const problemList = matchFoundModal.problems && matchFoundModal.problems.length > 0
+          ? matchFoundModal.problems
+          : (matchFoundModal.problemData ? [matchFoundModal.problemData] : []);
+        const questionIds = problemList.map((p) => p._id || p);
+
+        try {
+          const createRes = await matchAPI.createMatch({
+            roomCode: generatedRoomCode,
+            type: 'ranked',
+            duration: durationSec,
+            questionCount: qCount,
+            timeLimit: `${Math.floor(durationSec / 60) < 10 ? '0' : ''}${Math.floor(durationSec / 60)}:00`,
+            player1: {
+              userId: currentUser?.id,
+              username: currentUser?.name || currentUser?.username || 'You',
+              ratingBefore: currentUser?.rating || 1500,
+            },
+            player2: {
+              userId: null,
+              username: matchFoundModal.opponent || 'v0_Sniper',
+              ratingBefore: matchFoundModal.opponentRating || 2395,
+            },
+            questions: questionIds,
+          });
+          const m = createRes?.data?.match || createRes?.match;
+          if (m?._id) {
+            createdMatchId = m._id.toString();
+          }
+        } catch (err) {
+          console.warn('Backend match creation notice:', err.message);
+        }
+
         const match = {
-          id: 'match_' + Date.now(),
-          type: matchFoundModal.type,
+          id: createdMatchId || generatedRoomCode,
+          matchId: createdMatchId,
+          roomCode: generatedRoomCode,
+          type: matchFoundModal.type || '1v1 Ranked Duel',
+          isRanked: true,
           opponent: matchFoundModal.opponent,
           opponentRating: matchFoundModal.opponentRating || 2395,
           opponentAvatar: matchFoundModal.opponentAvatar || 'VS',
-          problem: matchFoundModal.problem,
-          problemData: matchFoundModal.problemData,
+          problem: problemList[0]?.title || matchFoundModal.problem,
+          problemData: problemList[0] || matchFoundModal.problemData,
+          problems: problemList,
+          questionCount: qCount,
+          duration: durationSec,
+          startedAt: new Date().toISOString(),
         };
         sessionStorage.setItem('codeclash_active_match', JSON.stringify(match));
         setActiveMatch(match);
@@ -297,58 +401,64 @@ export default function App() {
 
   // Start match from Private Room
   const handleStartPrivateBattle = (roomConfig) => {
+    let durationSeconds = roomConfig?.duration;
+    if (!durationSeconds && roomConfig?.timeLimit) {
+      const parts = roomConfig.timeLimit.split(':').map(Number);
+      durationSeconds = (parts[0] || 15) * 60 + (parts[1] || 0);
+    }
+    if (![300, 600, 900].includes(durationSeconds)) {
+      durationSeconds = 600;
+    }
+    const problems = roomConfig?.questions || (roomConfig?.problemData ? [roomConfig.problemData] : []);
     const match = {
       id: roomConfig?.matchId || roomConfig?.roomCode || 'CD-8492',
       matchId: roomConfig?.matchId,
       roomCode: roomConfig?.roomCode,
       type: 'Private Scrimmage',
+      isRanked: false,
       opponent: roomConfig?.opponent || 'v0_Sniper',
       opponentRating: roomConfig?.opponentRating || 2180,
       opponentAvatar: roomConfig?.opponentAvatar || 'VS',
       difficulty: roomConfig?.difficulty || 'Medium',
-      timeLimit: roomConfig?.timeLimit || '15:00',
-      duration: roomConfig?.duration || 900,
+      timeLimit: roomConfig?.timeLimit || `${Math.floor(durationSeconds / 60) < 10 ? '0' : ''}${Math.floor(durationSeconds / 60)}:00`,
+      duration: durationSeconds,
       startedAt: roomConfig?.startedAt || new Date().toISOString(),
-      problem: roomConfig?.problem || 'Binary Search',
-      problemData: roomConfig?.problemData,
+      problem: problems[0]?.title || roomConfig?.problem || 'Binary Search',
+      problemData: problems[0] || roomConfig?.problemData,
+      problems: problems,
+      questionCount: problems.length || 1,
     };
     sessionStorage.setItem('codeclash_active_match', JSON.stringify(match));
     setActiveMatch(match);
     navigate('arena');
   };
 
-  // Trigger exit confirmation modal
-  const handleTriggerExitArena = () => {
-    setPendingNavigationRoute('lobby');
-    setConfirmExitModal(true);
-  };
+  // Clean exit without penalty or forfeit warning (used when match is finished, abandoned, or forfeited)
+  const handleCleanExit = useCallback((destination = 'lobby') => {
+    sessionStorage.removeItem('codeclash_active_match');
+    setActiveMatch(null);
+    setConfirmExitModal(false);
+    setPendingNavigationRoute(null);
+    setRoute(destination);
+    window.location.hash = destination;
+  }, []);
 
-  // Confirm exit: Notify backend MongoDB of abandonment, deduct penalty, and exit match
-  const handleConfirmExit = async () => {
-    const roomCode = activeMatch?.roomCode;
-    const matchId = activeMatch?.matchId || activeMatch?.id;
-    const playerId = currentUser?.id || 'player';
-
+  // Refresh user data from MongoDB after match completion (LP update)
+  const handleMatchComplete = useCallback(async () => {
     try {
-      await Promise.allSettled([
-        roomCode ? roomAPI.abandonRoom(roomCode, playerId) : Promise.resolve(),
-        matchId ? matchAPI.abandonMatch(matchId, playerId) : Promise.resolve(),
-      ]);
-    } catch (err) {
-      console.warn('Abandonment report notice:', err);
-    }
-
-    authAPI.getMe().then((res) => {
+      const res = await authAPI.getMe();
       if (res?.data?.user) {
         const u = res.data.user;
         const tierDetails = getTierDetails(u.rating || 1500, u.tier);
         const combatant = {
           id: u._id || u.id,
-          name: u.username || u.name,
+          name: u.name || u.username,
+          username: u.username,
           handle: `@${u.username}`,
           avatar: u.avatar || (u.username ? u.username.slice(0, 2).toUpperCase() : 'KV'),
           color: u.color || 'indigo',
           rating: u.rating || 1500,
+          rank: u.rank || 1,
           tier: tierDetails.currentTier,
           wins: u.wins || 0,
           losses: u.losses || 0,
@@ -365,15 +475,75 @@ export default function App() {
         setCurrentUser(combatant);
         sessionStorage.setItem('codeclash_user', JSON.stringify(combatant));
       }
-    }).catch(console.warn);
+    } catch (err) {
+      console.warn('Failed to refresh user data after match completion:', err.message);
+    }
+  }, []);
+
+  // Trigger exit confirmation modal
+  const handleTriggerExitArena = () => {
+    setPendingNavigationRoute('lobby');
+    setConfirmExitModal(true);
+  };
+
+  // Confirm exit: Notify backend MongoDB of abandonment, deduct penalty, and exit match
+  const handleConfirmExit = async () => {
+    const roomCode = activeMatch?.roomCode;
+    const matchId = activeMatch?.matchId || activeMatch?.id;
+    const playerId = currentUser?.id || 'player';
+
+    try {
+      await Promise.allSettled([
+        roomCode ? roomAPI.abandonRoom(roomCode, playerId) : Promise.resolve(),
+        matchId
+          ? matchAPI.abandonMatch(matchId, playerId, {
+              problemTitle: activeMatch?.problem || activeMatch?.problemData?.title,
+              difficulty: activeMatch?.difficulty || activeMatch?.problemData?.difficulty || 'Medium',
+            })
+          : Promise.resolve(),
+        matchmakingAPI.leaveQueue().catch(() => null),
+      ]);
+
+      const res = await authAPI.getMe().catch(() => null);
+      if (res?.data?.user) {
+        const u = res.data.user;
+        const tierDetails = getTierDetails(u.rating || 1500, u.tier);
+        const combatant = {
+          id: u._id || u.id,
+          name: u.username || u.name,
+          handle: `@${u.username}`,
+          avatar: u.avatar || (u.username ? u.username.slice(0, 2).toUpperCase() : 'KV'),
+          color: u.color || 'indigo',
+          rating: u.rating || 1500,
+          rank: u.rank || 1,
+          tier: tierDetails.currentTier,
+          wins: u.wins || 0,
+          losses: u.losses || 0,
+          streak: Math.max(0, u.streak || 0),
+          longestStreak: Math.max(0, u.longestStreak || u.bestStreak || u.streak || 0),
+          todayCompleted: u.todayCompleted || false,
+          lastActivityDate: u.lastActivityDate || null,
+          activityHistory: u.activityHistory || [],
+          weeklyIndicators: u.weeklyIndicators || null,
+          primaryStack: u.primaryStack || u.stack || 'Python',
+          stack: u.primaryStack || u.stack || 'Python',
+          email: u.email,
+        };
+        setCurrentUser(combatant);
+        sessionStorage.setItem('codeclash_user', JSON.stringify(combatant));
+      }
+    } catch (err) {
+      console.warn('Abandonment report notice:', err);
+    }
 
     sessionStorage.removeItem('codeclash_active_match');
     setActiveMatch(null);
     setConfirmExitModal(false);
     const destination = pendingNavigationRoute || 'lobby';
     setPendingNavigationRoute(null);
+    setRoute(destination);
     window.location.hash = destination;
-    setForfeitNotice('Match Abandoned.');
+    setForfeitNotice('Match Abandoned (-24 LP)');
   };
 
   const handleCancelExit = () => {
@@ -505,7 +675,10 @@ export default function App() {
             navigate={navigate}
             currentUser={currentUser}
             activeMatch={activeMatch}
-            onExitArena={handleTriggerExitArena}
+            onCleanExit={handleCleanExit}
+            onTriggerForfeit={handleTriggerExitArena}
+            onForfeit={handleConfirmExit}
+            onMatchComplete={handleMatchComplete}
           />
         )}
 
@@ -568,7 +741,7 @@ export default function App() {
                 <span className="font-bold text-slate-900 text-xs font-sans">
                   {currentUser?.name || 'You'}
                 </span>
-                <span className="font-mono text-[11px] text-sky-600">2,148 LP</span>
+                <span className="font-mono text-[11px] text-sky-600">{(currentUser?.rating || 1500).toLocaleString()} LP</span>
               </div>
 
               <div className="font-mono font-black text-xl text-indigo-600 flex flex-col items-center">
@@ -583,7 +756,7 @@ export default function App() {
                 <span className="font-bold text-slate-900 text-xs font-sans">
                   {matchFoundModal.opponent}
                 </span>
-                <span className="font-mono text-[11px] text-slate-500">2,395 LP</span>
+                <span className="font-mono text-[11px] text-slate-500">{(matchFoundModal.opponentRating || 1500).toLocaleString()} LP</span>
               </div>
             </div>
 

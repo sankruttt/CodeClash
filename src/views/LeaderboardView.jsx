@@ -188,11 +188,10 @@ export default function LeaderboardView({ currentUser }) {
                 <button
                   key={stk}
                   onClick={() => setStackFilter(stk)}
-                  className={`px-2.5 py-0.5 rounded transition-colors text-[11px] cursor-pointer ${
-                    stackFilter === stk
+                  className={`px-2.5 py-0.5 rounded transition-colors text-[11px] cursor-pointer ${stackFilter === stk
                       ? 'bg-slate-900 text-white font-medium shadow-2xs'
                       : 'hover:bg-slate-100 text-slate-600 hover:text-slate-900'
-                  }`}
+                    }`}
                 >
                   {stk}
                 </button>
@@ -436,11 +435,10 @@ export default function LeaderboardView({ currentUser }) {
                     return (
                       <tr
                         key={item.rank}
-                        className={`transition-colors ${
-                          isCurrentUser
+                        className={`transition-colors ${isCurrentUser
                             ? 'bg-indigo-50/90 ring-1 ring-inset ring-indigo-300 font-semibold'
                             : 'hover:bg-slate-50/80'
-                        }`}
+                          }`}
                       >
                         <td className="py-3.5 px-5 sm:px-6 font-bold text-slate-800 whitespace-nowrap">
                           #{item.rankFormatted}
@@ -448,11 +446,10 @@ export default function LeaderboardView({ currentUser }) {
                         <td className="py-3.5 px-5 sm:px-6 font-sans font-medium text-slate-900 whitespace-nowrap">
                           <div className="flex items-center gap-2.5">
                             <div
-                              className={`w-7 h-7 rounded-full font-mono font-bold text-[10px] flex items-center justify-center shrink-0 ${
-                                isCurrentUser
+                              className={`w-7 h-7 rounded-full font-mono font-bold text-[10px] flex items-center justify-center shrink-0 ${isCurrentUser
                                   ? 'bg-indigo-600 text-white shadow-xs'
                                   : 'bg-slate-100 text-slate-700'
-                              }`}
+                                }`}
                             >
                               {item.avatar}
                             </div>
@@ -524,7 +521,7 @@ export default function LeaderboardView({ currentUser }) {
                 {myRank ? `#${String(myRank).padStart(2, '0')}` : '#--'}
               </span>
               <span className="font-sans font-bold text-indigo-950">
-                {currentUser?.name || currentUser?.username || 'You'} (Your Standing)
+                {currentUser?.name || currentUser?.username || 'You'} (You)
               </span>
               <span className="inline-flex items-center whitespace-nowrap px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 text-[10px] font-semibold">
                 {myTier.toUpperCase()}

@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Room from '../models/Room.js';
 import Match from '../models/Match.js';
 import CodingProblem from '../models/CodingProblem.js';
@@ -28,11 +29,13 @@ export async function createRoom({
   hostId,
   hostName,
   difficulty = 'Medium',
-  timeLimit = '15:00',
+  timeLimit = '10:00',
   questions = null
 }) {
   const validDifficulty = ['Easy', 'Medium', 'Hard'].includes(difficulty) ? difficulty : 'Medium';
-  const duration = parseDurationToSeconds(timeLimit);
+  const normalizedTime = timeLimit?.length === 4 ? `0${timeLimit}` : timeLimit;
+  const validTimeLimit = ['05:00', '10:00', '15:00'].includes(normalizedTime) ? normalizedTime : '10:00';
+  const duration = parseDurationToSeconds(validTimeLimit);
 
   let roomCode;
   let attempts = 0;
@@ -54,7 +57,7 @@ export async function createRoom({
     hostId,
     hostName,
     difficulty: validDifficulty,
-    timeLimit,
+    timeLimit: validTimeLimit,
     duration,
     questions: questions || [],
     status: 'waiting'
@@ -64,12 +67,29 @@ export async function createRoom({
   return room.toJSON ? room.toJSON() : room;
 }
 
-export async function updateRoomSettings(code, { difficulty, timeLimit, hostId }) {
+export async function updateRoomSettings(code, arg2, arg3 = {}) {
   if (!code) {
     const err = new Error('Room code is required');
     err.statusCode = 400;
     throw err;
   }
+
+  let hostId = null;
+  let settings = {};
+
+  if (arg2 && typeof arg2 === 'object' && !mongoose.Types.ObjectId.isValid(arg2)) {
+    settings = arg2;
+    hostId = settings.hostId;
+  } else {
+    hostId = arg2;
+    settings = arg3 || {};
+  }
+
+  if (!hostId && settings.hostId) {
+    hostId = settings.hostId;
+  }
+
+  const { difficulty, timeLimit } = settings;
 
   const upperCode = code.toUpperCase();
   const room = await Room.findOne({ code: upperCode });
@@ -83,6 +103,7 @@ export async function updateRoomSettings(code, { difficulty, timeLimit, hostId }
   if (hostId && String(room.hostId) !== String(hostId)) {
     const err = new Error('Only the room host can modify room settings');
     err.statusCode = 403;
+    err.code = 'NOT_ROOM_OWNER';
     throw err;
   }
 
@@ -91,8 +112,15 @@ export async function updateRoomSettings(code, { difficulty, timeLimit, hostId }
   }
 
   if (timeLimit) {
-    room.timeLimit = timeLimit;
-    room.duration = parseDurationToSeconds(timeLimit);
+    const normalizedTime = timeLimit.length === 4 ? `0${timeLimit}` : timeLimit;
+    if (!['05:00', '10:00', '15:00'].includes(normalizedTime)) {
+      const err = new Error('Invalid duration: only 5, 10, or 15 minutes allowed');
+      err.statusCode = 400;
+      err.code = 'VALIDATION_ERROR';
+      throw err;
+    }
+    room.timeLimit = normalizedTime;
+    room.duration = parseDurationToSeconds(normalizedTime);
   }
 
   await room.save();
@@ -283,12 +311,10 @@ export async function abandonRoomByCode(code, leavingUserId) {
   room.completedAt = new Date();
   await room.save();
 
-  // If match exists, trigger match abandonment and reward calculation
-  if (room.matchId) {
-    await abandonMatch(room.matchId, leavingUserId).catch((err) => {
-      console.warn('Abandon match warning:', err.message);
-    });
-  }
+  // Trigger match abandonment and penalty calculation
+  await abandonMatch(room.matchId || room.code, leavingUserId).catch((err) => {
+    console.warn('Abandon match warning:', err.message);
+  });
 
   return room.toJSON ? room.toJSON() : room;
 }

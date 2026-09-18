@@ -70,22 +70,24 @@ export async function updatePlayerStatsAfterMatch(userId, match, playerResult) {
     date: new Date()
   });
 
-  // Calculate new live rank
-  const higherCount = await User.countDocuments({
-    rating: { $gt: playerResult.ratingAfter }
-  });
-  stats.globalRank = higherCount + 1;
-
-  await stats.save();
-
-  // Authoritative update to User model (rating, wins, losses, draws, rank)
+  // Authoritative update to User model first so countDocuments is consistent
   await User.findByIdAndUpdate(userId, {
     rating: playerResult.ratingAfter,
     wins: stats.totalWins,
     losses: stats.totalLosses,
-    draws: stats.totalDraws,
-    rank: stats.globalRank
+    draws: stats.totalDraws
   });
+
+  // Calculate new live rank against updated User collection
+  const higherCount = await User.countDocuments({
+    isActive: { $ne: false },
+    rating: { $gt: playerResult.ratingAfter }
+  });
+  stats.globalRank = higherCount + 1;
+  await stats.save();
+
+  // Save live rank to User model
+  await User.findByIdAndUpdate(userId, { rank: stats.globalRank });
 
   // Record daily activity for streak progression without overwriting with match win/loss streak
   try {
@@ -100,23 +102,42 @@ export async function updatePlayerStatsAfterMatch(userId, match, playerResult) {
 // ============== MATCH HISTORY ==============
 
 export async function addMatchHistory(userId, match, playerResult, opponentResult) {
-  const result = match.winner && match.winner.toString() === userId.toString()
-    ? 'win'
-    : match.result === 'draw' ? 'draw' : 'loss';
+  const isWin = match.winner && match.winner.toString() === userId.toString();
+  const isDraw = match.result === 'draw';
+  const result = isWin ? 'win' : isDraw ? 'draw' : 'loss';
+
+  const startedAt = match.startedAt || new Date(Date.now() - (match.duration || 30) * 1000);
+  const completedAt = match.completedAt || new Date();
+
+  const oppName = opponentResult?.username || opponentResult?.name || (match.opponent || 'v0_Sniper');
+  const oppAvatar = opponentResult?.avatar || (oppName ? oppName.slice(0, 2).toUpperCase() : 'VS');
+
+  const probTitle = match.problemTitle || match.problem || match.problems?.[0]?.title || 'Algorithmic Duel';
+  const probDiff = match.difficulty || match.problemData?.difficulty || match.problems?.[0]?.difficulty || 'Medium';
 
   const history = new MatchHistory({
     userId,
-    matchId: match._id || match.id,
-    opponentId: opponentResult?.userId,
-    opponentName: opponentResult?.username,
-    opponentAvatar: opponentResult?.avatar,
+    matchId: match._id || match.id || new mongoose.Types.ObjectId(),
+    opponentId: opponentResult?.userId && mongoose.Types.ObjectId.isValid(opponentResult.userId) ? opponentResult.userId : null,
+    opponentName: oppName,
+    opponentAvatar: oppAvatar,
     result,
     problemsSolved: playerResult.problemsSolved || 0,
-    opponentProblemsSolved: opponentResult?.problemsSolved || 0,
-    ratingChange: playerResult.ratingChange || 0,
-    ratingAfter: playerResult.ratingAfter || 1500,
+    opponentProblemsSolved: typeof opponentResult?.problemsSolved === 'number' ? opponentResult.problemsSolved : (isWin ? 0 : 1),
+    ratingChange: typeof playerResult.ratingChange === 'number' ? playerResult.ratingChange : (isWin ? 24 : isDraw ? 0 : -24),
+    ratingAfter: typeof playerResult.ratingAfter === 'number' ? playerResult.ratingAfter : 1500,
     duration: match.duration || 0,
-    matchType: match.type || 'ranked'
+    matchType: match.type || 'ranked',
+    problemTitle: probTitle,
+    difficulty: probDiff,
+    startedAt,
+    completedAt,
+    problems: [{
+      title: probTitle,
+      difficulty: probDiff,
+      solved: playerResult.problemsSolved > 0,
+      time: match.duration || 0
+    }]
   });
 
   await history.save();

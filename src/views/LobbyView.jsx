@@ -6,6 +6,9 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
   const [isCreatingRoom, setIsCreatingRoom] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
+  const [rankedQuestions, setRankedQuestions] = useState(1);
+  const [rankedDuration, setRankedDuration] = useState(10);
+
   const handleCreateRoom = async () => {
     setIsCreatingRoom(true);
     setErrorMsg('');
@@ -107,37 +110,89 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
 
                 <div>
                   <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-                    1v1 Ranked Duel (Best of 3)
+                    1v1 Ranked Duel
                   </h2>
                   <p className="text-sm text-slate-600 mt-1 font-sans leading-relaxed">
-                    Automated competitive matchmaking against verified adversaries of comparable LP. Full rating calibration applies upon conclusion.
+                    Automated competitive matchmaking against verified adversaries of comparable LP. First player to solve all assigned questions wins immediately.
                   </p>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3 pt-2 font-mono text-xs">
-                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                {/* Ranked Lobby Configuration */}
+                <div className="pt-2 pb-1 space-y-3 bg-slate-50/70 p-3 rounded-lg border border-slate-200/80">
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] font-mono mb-1.5">
+                      <span className="text-slate-500 font-medium uppercase tracking-wider">Number of Questions</span>
+                      <span className="text-indigo-600 font-bold">{rankedQuestions} {rankedQuestions === 1 ? 'Question' : 'Questions'}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[1, 2, 3].map((count) => (
+                        <button
+                          key={count}
+                          type="button"
+                          disabled={queueing}
+                          onClick={() => setRankedQuestions(count)}
+                          className={`py-2 px-3 rounded-lg border font-mono text-xs font-semibold transition-all ${rankedQuestions === count
+                            ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-2xs'
+                            : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                            } ${queueing ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                        >
+                          {count} {count === 1 ? 'Question' : 'Questions'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] font-mono mb-1.5">
+                      <span className="text-slate-500 font-medium uppercase tracking-wider">Match Duration</span>
+                      <span className="text-indigo-600 font-bold">{rankedDuration} Minutes</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[5, 10, 15].map((mins) => (
+                        <button
+                          key={mins}
+                          type="button"
+                          disabled={queueing}
+                          onClick={() => setRankedDuration(mins)}
+                          className={`py-2 px-3 rounded-lg border font-mono text-xs font-semibold transition-all ${rankedDuration === mins
+                            ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-2xs'
+                            : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                            } ${queueing ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                        >
+                          {mins} Minutes
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3 pt-1 font-mono text-xs">
+                  <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-100">
                     <div className="text-[10px] text-slate-400 font-medium">QUEUE TIME</div>
                     <div className="text-sm font-bold text-slate-800 mt-0.5">~12s</div>
                   </div>
-                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                  <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-100">
                     <div className="text-[10px] text-slate-400 font-medium">PAIRING TOLERANCE</div>
                     <div className="text-sm font-bold text-indigo-600 mt-0.5">±120 LP</div>
                   </div>
-                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                  <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-100">
                     <div className="text-[10px] text-slate-400 font-medium">STAKE</div>
-                    <div className="text-sm font-bold text-emerald-600 mt-0.5">+24 / -18 LP</div>
+                    <div className="text-sm font-bold mt-0.5">
+                      <span className="text-emerald-600">+24</span>
+                      <span className="text-black"> / </span>
+                      <span className="text-red-600"> -24 LP</span>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <div className="pt-5">
+              <div className="pt-4">
                 <button
-                  onClick={onToggleQueue}
-                  className={`w-full py-3 px-4 rounded-lg font-mono text-xs font-bold tracking-wider uppercase flex items-center justify-center gap-2 border shadow-sm transition-all duration-150 cursor-pointer ${
-                    queueing
-                      ? 'bg-rose-600 hover:bg-rose-700 text-white border-rose-700 shadow-rose-600/20 animate-pulse'
-                      : 'bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white border-indigo-700 shadow-indigo-600/20'
-                  }`}
+                  onClick={() => onToggleQueue?.({ questionCount: rankedQuestions, duration: rankedDuration })}
+                  className={`w-full py-3 px-4 rounded-lg font-mono text-xs font-bold tracking-wider uppercase flex items-center justify-center gap-2 border shadow-sm transition-all duration-150 cursor-pointer ${queueing
+                    ? 'bg-rose-600 hover:bg-rose-700 text-white border-rose-700 shadow-rose-600/20 animate-pulse'
+                    : 'bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white border-indigo-700 shadow-indigo-600/20'
+                    }`}
                 >
                   <span className="material-symbols-outlined text-base">
                     {queueing ? 'hourglass_top' : 'swords'}
@@ -145,7 +200,7 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
                   <span>
                     {queueing
                       ? 'SEARCHING MATCH... CLICK TO CANCEL'
-                      : 'ENTER 1v1 MATCHMAKING QUEUE'}
+                      : `ENTER 1v1 MATCHMAKING QUEUE (${rankedQuestions}Q • ${rankedDuration}M)`}
                   </span>
                 </button>
               </div>
@@ -158,7 +213,7 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
                   <div className="flex items-center gap-2 font-mono">
                     <span className="text-xs text-slate-500 font-bold">PROTOCOL_02</span>
                     <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200 text-[10px] font-semibold">
-                      SANDBOX / P2P
+                      P2P
                     </span>
                   </div>
                   <span className="text-xs font-mono text-slate-400">UNRANKED</span>
@@ -246,7 +301,7 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
                   </span>
                   <div>
                     <strong className="text-slate-900 font-semibold block">Deterministic Rating Adjustments</strong>
-                    Victories yield +24 LP; defeats lose -18 LP. All rating transitions are committed directly to MongoDB.
+                    Victories yield +24 LP; defeats lose -24 LP. All rating transitions are committed directly to MongoDB.
                   </div>
                 </div>
 

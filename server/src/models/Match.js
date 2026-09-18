@@ -10,9 +10,12 @@ const playerResultSchema = new mongoose.Schema({
   ratingBefore: Number,
   ratingAfter: Number,
   ratingChange: { type: Number, default: 0 },
+  pointsAwarded: { type: Number, default: 0 },
+  completionTime: { type: Number, default: 0 },  // seconds from match start
   totalTime: { type: Number, default: 0 },  // seconds
   problemsSolved: { type: Number, default: 0 },
   submissions: { type: Number, default: 0 },
+  isWinner: { type: Boolean, default: false },
   status: {
     type: String,
     enum: ['WAITING', 'MATCHED', 'ACTIVE', 'FINISHED', 'DISCONNECTED'],
@@ -35,7 +38,7 @@ const matchSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['ranked', 'casual', 'private'],
+    enum: ['ranked', 'casual', 'private', 'scrimmage'],
     default: 'ranked'
   },
   status: {
@@ -48,6 +51,11 @@ const matchSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'CodingProblem'
   }],
+  questionCount: {
+    type: Number,
+    enum: [1, 2, 3],
+    default: 1
+  },
   difficulty: {
     type: String,
     enum: ['Easy', 'Medium', 'Hard'],
@@ -60,6 +68,14 @@ const matchSchema = new mongoose.Schema({
   winner: {
     type: mongoose.Schema.Types.Mixed,
     default: null
+  },
+  winnerId: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null
+  },
+  isDraw: {
+    type: Boolean,
+    default: false
   },
   abandonedBy: {
     type: mongoose.Schema.Types.Mixed,

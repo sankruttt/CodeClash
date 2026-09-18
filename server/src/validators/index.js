@@ -41,12 +41,29 @@ export const updateProfileSchema = z.object({
 // ============== MATCH VALIDATORS ==============
 
 export const createMatchSchema = z.object({
-  type: z.enum(['ranked', 'casual', 'private']).default('ranked'),
+  type: z.enum(['ranked', 'casual', 'private', 'scrimmage']).default('ranked'),
   problemIds: z.array(z.string()).optional(),
   roomCode: z.string().optional(),
   player1: z.any().optional(),
   player2: z.any().optional(),
-  questions: z.array(z.any()).optional()
+  questions: z.array(z.any()).optional(),
+  questionCount: z.number().int().min(1).max(3).default(1),
+  duration: z.number().int().refine((val) => [300, 600, 900].includes(val), {
+    message: 'Duration must be 300 (5m), 600 (10m), or 900 (15m)'
+  }).default(600),
+  timeLimit: z.enum(['05:00', '10:00', '15:00']).default('10:00')
+}).passthrough();
+
+export const joinQueueSchema = z.object({
+  questionCount: z.number().int().min(1).max(3).default(1),
+  duration: z.number().int().refine((val) => [5, 10, 15, 300, 600, 900].includes(val), {
+    message: 'Duration must be 5, 10, or 15 minutes'
+  }).default(10)
+}).passthrough();
+
+export const updateRoomSettingsSchema = z.object({
+  difficulty: z.enum(['Easy', 'Medium', 'Hard']).optional(),
+  timeLimit: z.enum(['05:00', '10:00', '15:00']).optional()
 }).passthrough();
 
 export const joinMatchSchema = z.object({
@@ -135,4 +152,4 @@ export function validate(schema, source = 'body') {
   };
 }
 
-export default { validate, registerSchema, loginSchema, updateProfileSchema, createMatchSchema, joinMatchSchema, submitCodeSchema, createProblemSchema };
+export default { validate, registerSchema, loginSchema, updateProfileSchema, createMatchSchema, joinMatchSchema, submitCodeSchema, createProblemSchema, joinQueueSchema, updateRoomSettingsSchema };

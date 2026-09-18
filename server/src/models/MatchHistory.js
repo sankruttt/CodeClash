@@ -7,12 +7,12 @@ const matchHistorySchema = new mongoose.Schema({
     required: true
   },
   matchId: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: mongoose.Schema.Types.Mixed,
     ref: 'Match',
-    required: true
+    required: false
   },
   opponentId: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: mongoose.Schema.Types.Mixed,
     ref: 'User'
   },
   opponentName: String,
@@ -30,7 +30,17 @@ const matchHistorySchema = new mongoose.Schema({
   duration: Number,  // seconds
   matchType: {
     type: String,
-    enum: ['ranked', 'casual', 'private']
+    default: 'ranked'
+  },
+  problemTitle: String,
+  difficulty: String,
+  startedAt: {
+    type: Date,
+    default: Date.now
+  },
+  completedAt: {
+    type: Date,
+    default: Date.now
   },
   problems: [{
     problemId: { type: mongoose.Schema.Types.ObjectId, ref: 'CodingProblem' },

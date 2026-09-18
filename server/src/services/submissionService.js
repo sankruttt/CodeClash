@@ -6,6 +6,7 @@ import TestCase from '../models/TestCase.js';
 import CodingProblem from '../models/CodingProblem.js';
 import { executeCode } from './compilerService.js';
 import { normalizeLanguage } from '../config/languages.js';
+import { completeMatch } from './matchService.js';
 
 // ============== CODE JUDGE ==============
 export async function judgeCode(code, language, testCases) {
@@ -15,7 +16,7 @@ export async function judgeCode(code, language, testCases) {
 
 // ============== SUBMIT CODE ==============
 
-export async function submitCode({ userId, matchId, problemId, code, language }) {
+export async function submitCode({ userId, matchId, problemId, code, language, _mockResult }) {
   if (!code || typeof code !== 'string') {
     const err = new Error('Source code cannot be empty');
     err.statusCode = 400;
@@ -87,6 +88,26 @@ export async function submitCode({ userId, matchId, problemId, code, language })
     throw err;
   }
 
+  if (match.status === 'COMPLETED') {
+    const err = new Error('Match has already concluded');
+    err.statusCode = 400;
+    err.code = 'MATCH_COMPLETED';
+    throw err;
+  }
+
+  // Authoritative check if match time has expired
+  const nowMs = Date.now();
+  const matchStartedMs = new Date(match.startedAt || match.createdAt || 0).getTime();
+  const elapsedSecs = Math.floor((nowMs - matchStartedMs) / 1000);
+  const matchDurationSecs = match.duration || 900;
+  if (matchStartedMs > 0 && elapsedSecs >= matchDurationSecs) {
+    await completeMatch(match._id);
+    const err = new Error('Match time has expired');
+    err.statusCode = 400;
+    err.code = 'TIME_EXPIRED';
+    throw err;
+  }
+
   if (match.status !== 'ACTIVE' && match.status !== 'in_progress') {
     match.status = 'ACTIVE';
     await match.save();
@@ -120,7 +141,7 @@ export async function submitCode({ userId, matchId, problemId, code, language })
   }
 
   // Judge code against test cases
-  const result = await judgeCode(code, canonicalLang, testCases);
+  const result = _mockResult || await judgeCode(code, canonicalLang, testCases);
 
   const timeFromStart = match.startedAt
     ? Math.floor((Date.now() - new Date(match.startedAt).getTime()) / 1000)
@@ -165,13 +186,60 @@ export async function submitCode({ userId, matchId, problemId, code, language })
         });
 
         player.problemsSolved = player.problemResults.filter((pr) => pr.solved).length;
+        player.completionTime = timeFromStart;
         player.totalTime = player.problemResults
           .filter((pr) => pr.solved)
           .reduce((sum, pr) => sum + pr.time, 0);
+        player.status = 'FINISHED';
       }
     }
 
     await match.save();
+
+    // Distinct Match State Machine Completion Condition:
+    // Ranked: Ends immediately when one player solves ALL assigned questions
+    // Scrimmage: Only ends when BOTH players have completed all questions (or timer expires)
+    const reqCount = match.problems?.length || match.questionCount || 1;
+    const isRanked = match.type === 'ranked';
+
+    let shouldComplete = false;
+    let allPlayersSolved = false;
+    if (isRanked) {
+      const anyPlayerSolvedAll = match.players.some((p) => (p.problemsSolved || 0) >= reqCount);
+      shouldComplete = anyPlayerSolvedAll;
+      allPlayersSolved = anyPlayerSolvedAll;
+    } else {
+      allPlayersSolved = match.players.length >= 2 && match.players.every(
+        (p) => (p.problemsSolved || 0) >= reqCount
+      );
+      shouldComplete = allPlayersSolved;
+    }
+
+    let completedMatchData = null;
+    if (shouldComplete) {
+      completedMatchData = await completeMatch(match._id);
+    }
+
+    return {
+      submission: {
+        id: submission._id,
+        status: result.status,
+        passedTests: result.passedTests,
+        totalTests: result.totalTests,
+        executionTime: result.executionTime,
+        testResults: result.testResults,
+        errorMessage: result.error
+      },
+      matchProgress: playerIndex !== -1 ? {
+        problemsSolved: match.players[playerIndex].problemsSolved || 0,
+        completionTime: match.players[playerIndex].completionTime || match.players[playerIndex].totalTime || 0,
+        totalTime: match.players[playerIndex].totalTime || 0,
+        status: match.players[playerIndex].status,
+        allPlayersSolved,
+        matchCompleted: Boolean(completedMatchData || match.status === 'COMPLETED'),
+        match: completedMatchData || match
+      } : null
+    };
   }
 
   return {
@@ -184,10 +252,7 @@ export async function submitCode({ userId, matchId, problemId, code, language })
       testResults: result.testResults,
       errorMessage: result.error
     },
-    matchProgress: playerIndex !== -1 ? {
-      problemsSolved: match.players[playerIndex].problemsSolved || 0,
-      totalTime: match.players[playerIndex].totalTime || 0
-    } : null
+    matchProgress: null
   };
 }
 

@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import Match from '../models/Match.js';
+import Room from '../models/Room.js';
 import CodingProblem from '../models/CodingProblem.js';
 import User from '../models/User.js';
 import { calculateRatingChange, updatePlayerStatsAfterMatch, addMatchHistory } from './scoringService.js';
@@ -58,20 +59,32 @@ export async function createPrivateMatch(hostId, type = 'private', options = {})
     throw err;
   }
 
-  const duration = options.duration || 15 * 60; // seconds
+  const questionCount = [1, 2, 3].includes(parseInt(options.questionCount, 10))
+    ? parseInt(options.questionCount, 10)
+    : 1;
+
+  let duration = options.duration || 600;
+  if ([5, 10, 15].includes(duration)) {
+    duration = duration * 60;
+  }
+  if (![300, 600, 900].includes(duration)) {
+    duration = 600;
+  }
   const difficulty = options.difficulty || 'Medium';
 
   let problems = options.problemIds;
   if (!problems || problems.length === 0) {
-    problems = await getRandomProblems(1, difficulty);
+    problems = await getRandomProblems(questionCount, difficulty);
   }
 
   const match = new Match({
     roomCode,
     type,
     status: 'WAITING',
-    isPrivate: type === 'private',
+    isPrivate: type === 'private' || type === 'scrimmage',
+    questionCount,
     duration,
+    timeLimit: `${duration / 60 < 10 ? '0' : ''}${duration / 60}:00`,
     players: [await buildPlayerEntry(hostId)],
     problems
   });
@@ -141,87 +154,239 @@ export async function startMatch(matchId) {
   return match;
 }
 
-export async function getMatchById(matchId) {
-  if (mongoose.Types.ObjectId.isValid(matchId)) {
-    return await Match.findById(matchId).populate('problems');
+export function determineWinnerAndPoints(player1, player2) {
+  const p1Solved = player1.problemsSolved || 0;
+  const p2Solved = player2.problemsSolved || 0;
+  const p1Time = player1.completionTime || player1.totalTime || 0;
+  const p2Time = player2.completionTime || player2.totalTime || 0;
+
+  let winner = null;
+  let winnerId = null;
+  let isDraw = false;
+  let result = 'draw';
+  let rating1Change = 0;
+  let rating2Change = 0;
+
+  // Rule 1 — Number of problems solved: Player who solved more problems wins
+  if (p1Solved > p2Solved) {
+    winner = player1.userId;
+    winnerId = player1.userId;
+    result = 'player1';
+    rating1Change = 24;
+    rating2Change = -24;
+  } else if (p2Solved > p1Solved) {
+    winner = player2.userId;
+    winnerId = player2.userId;
+    result = 'player2';
+    rating1Change = -24;
+    rating2Change = 24;
+  } else if (p1Solved > 0 && p2Solved > 0) {
+    // Rule 2 — Completion time: If both players solved the same number of problems > 0
+    if (p1Time < p2Time) {
+      winner = player1.userId;
+      winnerId = player1.userId;
+      result = 'player1';
+      rating1Change = 24;
+      rating2Change = -24;
+    } else if (p2Time < p1Time) {
+      winner = player2.userId;
+      winnerId = player2.userId;
+      result = 'player2';
+      rating1Change = -24;
+      rating2Change = 24;
+    } else {
+      // Rule 4 — Tie: Same solved count and same completion time -> DRAW, 0 points each
+      winner = null;
+      winnerId = null;
+      isDraw = true;
+      result = 'draw';
+      rating1Change = 0;
+      rating2Change = 0;
+    }
+  } else {
+    // Rule 3 — Neither player solved anything: Both solved 0 -> DRAW, 0 points each
+    winner = null;
+    winnerId = null;
+    isDraw = true;
+    result = 'draw';
+    rating1Change = 0;
+    rating2Change = 0;
   }
-  return await Match.findOne({ roomCode: String(matchId).toUpperCase() }).populate('problems');
+
+  return {
+    winner,
+    winnerId,
+    isDraw,
+    result,
+    rating1Change,
+    rating2Change
+  };
+}
+
+export async function getMatchById(matchId) {
+  let match = null;
+  if (mongoose.Types.ObjectId.isValid(matchId)) {
+    match = await Match.findById(matchId).populate('problems');
+  }
+  if (!match && matchId) {
+    const clean = String(matchId).replace(/^(room_|match_)/i, '').toUpperCase();
+    match = await Match.findOne({ roomCode: clean }).populate('problems');
+    if (!match) {
+      const room = await Room.findOne({ code: clean });
+      if (room?.matchId) {
+        match = await Match.findById(room.matchId).populate('problems');
+      }
+    }
+  }
+
+  // Authoritative backend auto-finalization if match duration has expired or all players solved
+  if (match && match.status === 'ACTIVE') {
+    const now = Date.now();
+    const started = new Date(match.startedAt || match.createdAt || 0).getTime();
+    const ageSeconds = Math.floor((now - started) / 1000);
+    const durationSeconds = match.duration || 900;
+
+    const isTimeExpired = started > 0 && ageSeconds >= durationSeconds;
+    const reqCount = match.problems?.length || match.questionCount || 1;
+    const isRanked = match.type === 'ranked';
+
+    let shouldComplete = isTimeExpired;
+    if (!shouldComplete) {
+      if (isRanked) {
+        shouldComplete = match.players.some((p) => (p.problemsSolved || 0) >= reqCount);
+      } else {
+        shouldComplete = match.players.length >= 2 && match.players.every((p) => (p.problemsSolved || 0) >= reqCount);
+      }
+    }
+
+    if (shouldComplete) {
+      match = await completeMatch(match._id);
+    }
+  }
+
+  return match;
 }
 
 export async function getMatchByRoomCode(code) {
-  return await Match.findOne({ roomCode: code.toUpperCase() }).populate('problems');
+  return await getMatchById(code);
 }
 
 export async function completeMatch(matchId) {
-  const match = await Match.findById(matchId);
+  let match = null;
+  if (matchId) {
+    if (mongoose.Types.ObjectId.isValid(matchId)) {
+      match = await Match.findById(matchId).populate('problems');
+    }
+    if (!match) {
+      const clean = String(matchId).replace(/^(room_|match_)/i, '').toUpperCase();
+      match = await Match.findOne({ roomCode: clean }).populate('problems');
+      if (!match) {
+        const room = await Room.findOne({ code: clean });
+        if (room?.matchId) {
+          match = await Match.findById(room.matchId).populate('problems');
+        }
+      }
+    }
+  }
+
   if (!match) {
     const err = new Error('Match not found');
     err.statusCode = 404;
     throw err;
   }
 
-  if (match.status === 'COMPLETED' || match.status === 'ABANDONED') return match;
+  // Idempotency: If already completed or abandoned with rewards processed, return current state
+  if (match.status === 'COMPLETED' || (match.status === 'ABANDONED' && match.rewardsAwarded)) {
+    return match;
+  }
 
-  const [player1, player2] = match.players;
-  if (!player1 || !player2) {
+  // Ensure 2 players exist in match (fills adversary if 1v1 practice)
+  if (match.players.length === 1) {
+    const opponent = {
+      userId: null,
+      username: match.opponent || 'v0_Sniper',
+      avatar: match.opponentAvatar || 'VS',
+      ratingBefore: match.opponentRating || 2395,
+      problemsSolved: 0,
+      completionTime: 0,
+      totalTime: 0,
+      status: 'FINISHED'
+    };
+    match.players.push(opponent);
+  }
+
+  if (match.players.length < 2) {
     const err = new Error('Match must have 2 players to complete');
     err.statusCode = 400;
     throw err;
   }
 
+  const [player1, player2] = match.players;
+
   player1.problemsSolved = player1.problemsSolved || 0;
   player2.problemsSolved = player2.problemsSolved || 0;
-  player1.totalTime = player1.totalTime || 0;
-  player2.totalTime = player2.totalTime || 0;
+  player1.completionTime = player1.problemsSolved > 0 ? (player1.completionTime || player1.totalTime || 0) : null;
+  player2.completionTime = player2.problemsSolved > 0 ? (player2.completionTime || player2.totalTime || 0) : null;
+  player1.totalTime = player1.completionTime || 0;
+  player2.totalTime = player2.completionTime || 0;
 
-  let winner = null;
-  let result = 'draw';
+  const outcome = determineWinnerAndPoints(player1, player2);
 
-  if (player1.problemsSolved > player2.problemsSolved) {
-    winner = player1.userId;
-    result = 'player1';
-  } else if (player2.problemsSolved > player1.problemsSolved) {
-    winner = player2.userId;
-    result = 'player2';
-  } else if (player1.totalTime < player2.totalTime) {
-    winner = player1.userId;
-    result = 'player1';
-  } else if (player2.totalTime < player1.totalTime) {
-    winner = player2.userId;
-    result = 'player2';
-  }
-
-  // Calculate rating changes
   const rating1Before = player1.ratingBefore || 1500;
   const rating2Before = player2.ratingBefore || 1500;
 
-  const rating1Change = calculateRatingChange(
-    rating1Before,
-    rating2Before,
-    result === 'player1' ? 1 : result === 'player2' ? 0 : 0.5
-  );
-  const rating2Change = calculateRatingChange(
-    rating2Before,
-    rating1Before,
-    result === 'player2' ? 1 : result === 'player1' ? 0 : 0.5
-  );
-
-  player1.ratingAfter = rating1Before + rating1Change;
-  player2.ratingAfter = rating2Before + rating2Change;
-  player1.ratingChange = rating1Change;
-  player2.ratingChange = rating2Change;
+  player1.ratingChange = outcome.rating1Change;
+  player2.ratingChange = outcome.rating2Change;
+  player1.pointsAwarded = outcome.rating1Change;
+  player2.pointsAwarded = outcome.rating2Change;
+  player1.ratingAfter = Math.max(0, rating1Before + outcome.rating1Change);
+  player2.ratingAfter = Math.max(0, rating2Before + outcome.rating2Change);
+  player1.isWinner = outcome.result === 'player1';
+  player2.isWinner = outcome.result === 'player2';
   player1.status = 'FINISHED';
   player2.status = 'FINISHED';
 
   match.status = 'COMPLETED';
-  match.winner = winner;
-  match.result = result;
+  match.winner = outcome.winner;
+  match.winnerId = outcome.winnerId;
+  match.isDraw = outcome.isDraw;
+  match.result = outcome.result;
   match.completedAt = new Date();
   match.duration = match.startedAt
-    ? Math.floor((match.completedAt - match.startedAt) / 1000)
+    ? Math.max(1, Math.floor((match.completedAt - match.startedAt) / 1000))
     : match.duration || 0;
 
+  if (!match.rewardsAwarded) {
+    match.rewardsAwarded = true;
+    match.rewardDetails = {
+      winnerId: outcome.winnerId,
+      isDraw: outcome.isDraw,
+      awardedAt: new Date(),
+      ratingChanges: {
+        [player1.userId || player1.username]: outcome.rating1Change,
+        [player2.userId || player2.username]: outcome.rating2Change
+      }
+    };
+
+    // Update MongoDB for player 1 (if registered user)
+    if (player1.userId && mongoose.Types.ObjectId.isValid(player1.userId)) {
+      await updatePlayerStatsAfterMatch(player1.userId, match, player1);
+      await addMatchHistory(player1.userId, match, player1, player2);
+    }
+
+    // Update MongoDB for player 2 (if registered user)
+    if (player2.userId && mongoose.Types.ObjectId.isValid(player2.userId)) {
+      await updatePlayerStatsAfterMatch(player2.userId, match, player2);
+      await addMatchHistory(player2.userId, match, player2, player1);
+    }
+  }
+
   await match.save();
+
+  if (match.roomCode) {
+    await Room.updateOne({ code: match.roomCode }, { $set: { status: 'completed' } }).catch(() => null);
+  }
+
   return match;
 }
 
@@ -229,70 +394,140 @@ export async function completeMatch(matchId) {
  * Handle match abandonment when a player leaves midway.
  * Fully idempotent: awards rewards to remaining player exactly once.
  */
-export async function abandonMatch(matchId, leavingUserId) {
-  let match = await getMatchById(matchId);
-  if (!match) {
-    const err = new Error('Match not found');
-    err.statusCode = 404;
-    throw err;
+export async function abandonMatch(matchId, leavingUserId, extra = {}) {
+  let match = null;
+
+  if (matchId) {
+    match = await getMatchById(matchId);
   }
 
-  // If already completed or abandoned, return existing state (idempotent)
-  if (match.status === 'ABANDONED') {
+  if (!match && matchId) {
+    const clean = String(matchId).replace(/^(room_|match_)/i, '').toUpperCase();
+    match = await Match.findOne({ roomCode: clean });
+    if (!match) {
+      const room = await Room.findOne({ code: clean });
+      if (room?.matchId) {
+        match = await Match.findById(room.matchId);
+      }
+    }
+  }
+
+  // If match was not pre-created in MongoDB (e.g. ad-hoc ranked duel), create Match document now
+  if (!match) {
+    const cleanCode = String(matchId || `M${Date.now().toString(36)}`)
+      .replace(/^(match_|room_)/i, '')
+      .slice(0, 10)
+      .toUpperCase();
+
+    match = new Match({
+      roomCode: cleanCode || `M${Date.now().toString(36).toUpperCase()}`,
+      type: 'ranked',
+      status: 'ACTIVE',
+      startedAt: new Date(Date.now() - 30000), // ~30s ago
+      players: []
+    });
+  }
+
+  if (extra.problemTitle && !match.problemTitle) {
+    match.problemTitle = extra.problemTitle;
+  }
+  if (extra.difficulty && !match.difficulty) {
+    match.difficulty = extra.difficulty;
+  }
+
+  // If already completed or abandoned with rewards processed, return state
+  if (match.status === 'ABANDONED' && match.rewardsAwarded) {
     return match;
   }
 
   match.status = 'ABANDONED';
   match.completedAt = new Date();
-
-  // Find abandoning player and remaining opponent
-  const leavingPlayer = match.players.find(
-    (p) => p.userId && p.userId.toString() === leavingUserId.toString()
-  );
-  const remainingPlayer = match.players.find(
-    (p) => p.userId && p.userId.toString() !== leavingUserId.toString()
-  );
-
-  if (leavingPlayer) {
-    match.abandonedBy = leavingPlayer.userId;
-    leavingPlayer.status = 'DISCONNECTED';
+  if (match.startedAt) {
+    match.duration = Math.max(1, Math.floor((match.completedAt - match.startedAt) / 1000));
+  } else {
+    match.duration = match.duration || 30;
   }
 
-  if (remainingPlayer) {
-    match.winner = remainingPlayer.userId;
-    remainingPlayer.status = 'FINISHED';
+  // Identify leaving user
+  let leavingUserDoc = null;
+  if (leavingUserId && mongoose.Types.ObjectId.isValid(leavingUserId)) {
+    leavingUserDoc = await User.findById(leavingUserId);
+  } else if (leavingUserId) {
+    leavingUserDoc = await User.findOne({ username: leavingUserId });
   }
 
-  // Idempotent reward processing
-  if (!match.rewardsAwarded && remainingPlayer?.userId) {
+  const leavingIdStr = leavingUserDoc?._id?.toString() || leavingUserId?.toString();
+
+  // Find or insert leaving player in match
+  let leavingPlayer = match.players.find(
+    (p) => p.userId && p.userId.toString() === leavingIdStr
+  );
+  if (!leavingPlayer) {
+    leavingPlayer = {
+      userId: leavingUserDoc?._id || leavingUserId,
+      username: leavingUserDoc?.username || 'Combatant',
+      avatar: leavingUserDoc?.avatar || 'KV',
+      ratingBefore: leavingUserDoc?.rating || 1500,
+      problemsSolved: 0,
+      status: 'DISCONNECTED'
+    };
+    match.players.push(leavingPlayer);
+  }
+
+  match.abandonedBy = leavingPlayer.userId;
+  leavingPlayer.status = 'DISCONNECTED';
+
+  // Find or insert remaining player in match
+  let remainingPlayer = match.players.find(
+    (p) => !p.userId || p.userId.toString() !== leavingIdStr
+  );
+  if (!remainingPlayer) {
+    remainingPlayer = {
+      userId: null,
+      username: match.opponent || 'v0_Sniper',
+      avatar: match.opponentAvatar || 'VS',
+      ratingBefore: match.opponentRating || 2395,
+      problemsSolved: 1,
+      status: 'FINISHED'
+    };
+    match.players.push(remainingPlayer);
+  }
+
+  remainingPlayer.status = 'FINISHED';
+  match.winner = remainingPlayer.userId || null;
+
+  // Authoritative rating, rank, and history update
+  if (!match.rewardsAwarded) {
     const penalty = 24;
     const reward = 24;
 
+    const leavingBefore = leavingUserDoc?.rating || leavingPlayer.ratingBefore || 1500;
+    const leavingAfter = Math.max(0, leavingBefore - penalty);
+    leavingPlayer.ratingChange = -penalty;
+    leavingPlayer.ratingAfter = leavingAfter;
+
     const remainingBefore = remainingPlayer.ratingBefore || 1500;
-    const leavingBefore = leavingPlayer?.ratingBefore || 1500;
-
+    const remainingAfter = remainingBefore + reward;
     remainingPlayer.ratingChange = reward;
-    remainingPlayer.ratingAfter = remainingBefore + reward;
-
-    if (leavingPlayer) {
-      leavingPlayer.ratingChange = -penalty;
-      leavingPlayer.ratingAfter = Math.max(0, leavingBefore - penalty);
-    }
+    remainingPlayer.ratingAfter = remainingAfter;
 
     match.rewardsAwarded = true;
     match.rewardDetails = {
-      winnerId: remainingPlayer.userId,
-      abandonedBy: leavingPlayer?.userId,
+      winnerId: remainingPlayer.userId || null,
+      abandonedBy: leavingPlayer.userId,
       awardedAt: new Date()
     };
 
-    // Update stats and histories
-    await updatePlayerStatsAfterMatch(remainingPlayer.userId, match, remainingPlayer);
-    await addMatchHistory(remainingPlayer.userId, match, remainingPlayer, leavingPlayer);
+    // Update leaving player in MongoDB: User, PlayerStatistics, MatchHistory
+    if (leavingUserDoc?._id) {
+      await updatePlayerStatsAfterMatch(leavingUserDoc._id, match, leavingPlayer);
+      await addMatchHistory(leavingUserDoc._id, match, leavingPlayer, remainingPlayer);
+    }
 
-    if (leavingPlayer?.userId) {
-      await updatePlayerStatsAfterMatch(leavingPlayer.userId, match, leavingPlayer);
-      await addMatchHistory(leavingPlayer.userId, match, leavingPlayer, remainingPlayer);
+    // If opponent is a real registered user, update them as well
+    if (remainingPlayer.userId && mongoose.Types.ObjectId.isValid(remainingPlayer.userId)) {
+      await updatePlayerStatsAfterMatch(remainingPlayer.userId, match, remainingPlayer);
+      await addMatchHistory(remainingPlayer.userId, match, remainingPlayer, leavingPlayer);
     }
   }
 
