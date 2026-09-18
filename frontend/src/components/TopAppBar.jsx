@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import logoImg from '../assets/codeclash-logo.png';
 
 const STITCH_LOGO_URL =
@@ -12,6 +12,19 @@ export default function TopAppBar({
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  const searchRef = useRef(null);
+
+  // Cmd/Ctrl+K focuses the global search
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -87,20 +100,14 @@ export default function TopAppBar({
             search
           </span>
           <input
+            ref={searchRef}
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search algorithms, matches, adversaries..."
-            className="w-full bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-800 text-xs pl-9 pr-20 py-1.5 rounded-lg focus:outline-none focus:border-indigo-500 focus:bg-white transition-colors placeholder:text-slate-400 font-sans shadow-2xs"
+            className="w-full bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-800 text-xs pl-9 pr-14 py-1.5 rounded-lg focus:outline-none focus:border-indigo-500 focus:bg-white transition-colors placeholder:text-slate-400 font-sans shadow-sm"
           />
-          <button
-            type="submit"
-            className="absolute right-1.5 px-2 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100 active:scale-95 text-indigo-700 border border-indigo-200 font-mono text-[10px] font-semibold flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
-            title="Press Enter or click to search"
-          >
-            <span>Enter</span>
-            <span className="material-symbols-outlined text-[12px]">keyboard_return</span>
-          </button>
+          <kbd className="absolute right-2 font-mono text-[10px] px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-500 font-medium shadow-xs">⌘K</kbd>
         </form>
       </div>
 

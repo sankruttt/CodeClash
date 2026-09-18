@@ -25,6 +25,15 @@ export function formatGameTime(dateVal) {
   }
 }
 
+export function matchTypeLabel(type) {
+  const t = (type || '').toLowerCase();
+  if (t === 'ranked' || t === 'casual') return 'Ranked';
+  if (t === 'private' || t === 'scrimmage' || t === 'private scrimmage' || t === 'private_scrimmage') {
+    return 'Scrimmage';
+  }
+  return 'Ranked';
+}
+
 export default function HistoryView({ navigate, currentUser }) {
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchFilter, setSearchFilter] = useState('');
@@ -61,12 +70,13 @@ export default function HistoryView({ navigate, currentUser }) {
                   score: `${m.problemsSolved ?? 0} / ${(m.problemsSolved ?? 0) + 1}`,
                   lp: lpStr,
                   time: m.duration ? `${Math.floor(m.duration / 60)}:${(m.duration % 60).toString().padStart(2, '0')}` : '00:30',
+                  solveTime: typeof m.solveTime === 'number' ? m.solveTime : null,
                   problem: m.problemTitle || (m.problems?.[0]?.title) || 'Algorithmic Duel',
                   diff: diff.toUpperCase().slice(0, 4),
                   diffColor:
                     diff.toUpperCase() === 'HARD' ? 'indigo' : diff.toUpperCase() === 'EASY' ? 'emerald' : 'amber',
                   date: formatGameTime(rawDate),
-                  type: m.matchType === 'scrimmage' || m.matchType === 'Private Scrimmage' ? 'Scrimmage' : 'Ranked',
+                  type: matchTypeLabel(m.matchType),
                 };
               })
             );
@@ -96,7 +106,7 @@ export default function HistoryView({ navigate, currentUser }) {
                     diff: 'MED',
                     diffColor: 'amber',
                     date: formatGameTime(rawDate),
-                    type: m.type === 'scrimmage' ? 'Scrimmage' : 'Ranked',
+                    type: matchTypeLabel(m.type),
                   };
                 })
               );
@@ -124,6 +134,19 @@ export default function HistoryView({ navigate, currentUser }) {
   const winRate = totalDuels > 0 ? ((totalWins / totalDuels) * 100).toFixed(1) : (matches.length > 0 ? '60.0' : '0.0');
   const rating = currentUser?.rating || 1500;
   const streak = currentUser?.streak ?? 0;
+
+  // Median solve time across all recorded solves
+  const solveTimes = matches.filter((m) => m.solveTime != null && m.solveTime > 0).map((m) => m.solveTime);
+  const medianSolveTime = (() => {
+    if (!solveTimes.length) return null;
+    const sorted = [...solveTimes].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  })();
+  const medianLabel =
+    medianSolveTime != null
+      ? `${Math.floor(medianSolveTime / 60)}:${(Math.round(medianSolveTime % 60)).toString().padStart(2, '0')}m`
+      : '--:--';
 
   const filtered = matches.filter((m) => {
     if (activeFilter !== 'All' && m.type !== activeFilter) return false;
@@ -164,6 +187,17 @@ export default function HistoryView({ navigate, currentUser }) {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t border-slate-100 font-mono">
             <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-3.5 shadow-2xs">
               <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                <span>CURRENT RATING</span>
+                <span className="text-indigo-600 font-semibold text-[10px]">Active</span>
+              </div>
+              <div className="text-xl font-bold text-slate-900 tracking-tight">
+                {rating.toLocaleString()} <span className="text-xs font-normal text-indigo-600">LP</span>
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1">Live Competitive Rating</div>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-3.5 shadow-2xs">
+              <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
                 <span>TOTAL DUELS</span>
                 <span className="text-emerald-600 bg-emerald-100/60 font-semibold px-1.5 py-0.2 rounded text-[10px]">
                   {winRate}% winrate
@@ -179,22 +213,13 @@ export default function HistoryView({ navigate, currentUser }) {
 
             <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-3.5 shadow-2xs">
               <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                <span>CURRENT RATING</span>
-                <span className="text-indigo-600 font-semibold text-[10px]">Active</span>
-              </div>
-              <div className="text-xl font-bold text-slate-900 tracking-tight">
-                {rating.toLocaleString()} <span className="text-xs font-normal text-indigo-600">LP</span>
-              </div>
-              <div className="text-[11px] text-slate-500 mt-1">Live Competitive Rating</div>
-            </div>
-
-            <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-3.5 shadow-2xs">
-              <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
                 <span>MEDIAN SOLVE TIME</span>
                 <span className="text-emerald-600 font-semibold text-[10px]">Active</span>
               </div>
-              <div className="text-xl font-bold text-slate-900 tracking-tight">04:18m</div>
-              <div className="text-[11px] text-slate-500 mt-1">Average execution & test velocity</div>
+              <div className="text-xl font-bold text-slate-900 tracking-tight">{medianLabel}</div>
+              <div className="text-[11px] text-slate-500 mt-1">
+                {medianSolveTime != null ? `Median across ${solveTimes.length} solved duels` : 'No solved duels yet'}
+              </div>
             </div>
 
             <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-3.5 shadow-2xs">

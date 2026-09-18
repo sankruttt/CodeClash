@@ -26,7 +26,8 @@ const playerResultSchema = new mongoose.Schema({
     solved: { type: Boolean, default: false },
     time: { type: Number, default: 0 },
     attempts: { type: Number, default: 0 },
-    score: { type: Number, default: 0 }
+    score: { type: Number, default: 0 },
+    language: String
   }]
 }, { _id: false });
 

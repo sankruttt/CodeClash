@@ -115,6 +115,16 @@ export async function addMatchHistory(userId, match, playerResult, opponentResul
   const probTitle = match.problemTitle || match.problem || match.problems?.[0]?.title || 'Algorithmic Duel';
   const probDiff = match.difficulty || match.problemData?.difficulty || match.problems?.[0]?.difficulty || 'Medium';
 
+  const solvedResults = Array.isArray(playerResult.problemResults) ? playerResult.problemResults : [];
+  const solved = solvedResults.find((pr) => pr.solved);
+  const language = solved?.language || playerResult.language || null;
+  const solveTime =
+    typeof playerResult.completionTime === 'number' && playerResult.completionTime > 0
+      ? playerResult.completionTime
+      : (solved?.time != null ? solved.time : null);
+  const mySolved = playerResult.problemsSolved || 0;
+  const oppSolved = typeof opponentResult?.problemsSolved === 'number' ? opponentResult.problemsSolved : (isWin ? 0 : mySolved);
+
   const history = new MatchHistory({
     userId,
     matchId: match._id || match.id || new mongoose.Types.ObjectId(),
@@ -122,11 +132,14 @@ export async function addMatchHistory(userId, match, playerResult, opponentResul
     opponentName: oppName,
     opponentAvatar: oppAvatar,
     result,
-    problemsSolved: playerResult.problemsSolved || 0,
-    opponentProblemsSolved: typeof opponentResult?.problemsSolved === 'number' ? opponentResult.problemsSolved : (isWin ? 0 : 1),
+    score: `${mySolved}-${oppSolved}`,
+    problemsSolved: mySolved,
+    opponentProblemsSolved: oppSolved,
     ratingChange: typeof playerResult.ratingChange === 'number' ? playerResult.ratingChange : (isWin ? 24 : isDraw ? 0 : -24),
     ratingAfter: typeof playerResult.ratingAfter === 'number' ? playerResult.ratingAfter : 1500,
     duration: match.duration || 0,
+    solveTime: solveTime ?? null,
+    language,
     matchType: match.type || 'ranked',
     problemTitle: probTitle,
     difficulty: probDiff,
@@ -135,8 +148,9 @@ export async function addMatchHistory(userId, match, playerResult, opponentResul
     problems: [{
       title: probTitle,
       difficulty: probDiff,
-      solved: playerResult.problemsSolved > 0,
-      time: match.duration || 0
+      solved: mySolved > 0,
+      time: (solveTime ?? match.duration) || 0,
+      language
     }]
   });
 

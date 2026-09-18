@@ -28,6 +28,8 @@ const matchHistorySchema = new mongoose.Schema({
   ratingChange: { type: Number, default: 0 },
   ratingAfter: Number,
   duration: Number,  // seconds
+  solveTime: Number,  // seconds taken to finish all solved problems
+  language: String,  // language used for the solved problem(s)
   matchType: {
     type: String,
     default: 'ranked'
@@ -47,7 +49,8 @@ const matchHistorySchema = new mongoose.Schema({
     title: String,
     difficulty: String,
     solved: Boolean,
-    time: Number
+    time: Number,
+    language: String
   }]
 }, {
   timestamps: true

@@ -182,7 +182,8 @@ export async function submitCode({ userId, matchId, problemId, code, language, _
           solved: true,
           time: timeFromStart,
           attempts: 1,
-          score: 100
+          score: 100,
+          language: canonicalLang
         });
 
         player.problemsSolved = player.problemResults.filter((pr) => pr.solved).length;
