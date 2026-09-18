@@ -1,4 +1,5 @@
 import React from 'react';
+import { SCORING } from '../config/scoring';
 
 /**
  * MatchCompleteModal
@@ -66,8 +67,8 @@ export default function MatchCompleteModal({
   const opponentInitials = getInitials(opponentName);
 
   // Ratings
-  const userRating = userPlayer.ratingAfter || userPlayer.rating || userPlayer.currentRating || currentUser?.rating || 1500;
-  const opponentRating = opponentPlayer.ratingAfter || opponentPlayer.rating || opponentPlayer.currentRating || activeMatch?.opponentRating || 1500;
+  const userRating = userPlayer.ratingAfter || userPlayer.rating || userPlayer.currentRating || currentUser?.rating || SCORING.defaultRating;
+  const opponentRating = opponentPlayer.ratingAfter || opponentPlayer.rating || opponentPlayer.currentRating || activeMatch?.opponentRating || SCORING.defaultRating;
 
   // Outcome Logic (Authoritative from backend)
   const isDraw = Boolean(
@@ -141,13 +142,13 @@ export default function MatchCompleteModal({
     ? userPlayer.pointsAwarded
     : typeof userPlayer.ratingChange === 'number'
       ? userPlayer.ratingChange
-      : (isDraw ? 0 : isUserWinner ? 24 : -24);
+      : (isDraw ? SCORING.ranked.draw : isUserWinner ? SCORING.ranked.win : SCORING.ranked.loss);
 
   const opponentPoints = typeof opponentPlayer.pointsAwarded === 'number'
     ? opponentPlayer.pointsAwarded
     : typeof opponentPlayer.ratingChange === 'number'
       ? opponentPlayer.ratingChange
-      : (isDraw ? 0 : isOpponentWinner ? 24 : -24);
+      : (isDraw ? SCORING.ranked.draw : isOpponentWinner ? SCORING.ranked.win : SCORING.ranked.loss);
 
   // Protocol & Breadcrumb Metadata
   const matchType = activeMatch?.type === 'scrimmage' || activeMatch?.type === 'Private Scrimmage'

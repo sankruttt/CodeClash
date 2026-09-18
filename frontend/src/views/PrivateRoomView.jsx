@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { roomAPI } from '../services/api';
+import { SCORING } from '../config/scoring';
 
 export default function PrivateRoomView({ navigate, currentUser, onStartBattle }) {
   const [roomCode] = useState(() => {
@@ -56,7 +57,7 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
       roomCode: data?.code || roomCode,
       type: 'Private Scrimmage',
       opponent,
-      opponentRating: isOwner ? 2395 : 2180,
+      opponentRating: isOwner ? SCORING.simulated.ranked : SCORING.simulated.scrimmage,
       opponentAvatar: opponent.slice(0, 2).toUpperCase(),
       difficulty: resolvedDifficulty,
       timeLimit: resolvedTimeLimit,
@@ -284,7 +285,7 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
                   <div className="flex items-center gap-1.5 mt-1 font-mono text-[11px] text-slate-500">
                     <span className="text-sky-600 font-semibold">{isOwner ? (currentUser?.tier || 'Diamond') : 'Diamond'}</span>
                     <span>•</span>
-                    <span>{isOwner ? (currentUser?.rating || 1500) : 2180} LP</span>
+                    <span>{isOwner ? (currentUser?.rating || SCORING.defaultRating) : SCORING.simulated.scrimmage} LP</span>
                   </div>
                 </div>
               </div>
@@ -352,7 +353,7 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
                       <div className="flex items-center gap-1.5 mt-1 font-mono text-[11px] text-slate-500">
                         <span className="text-sky-600 font-semibold">{isGuest ? (currentUser?.tier || 'Master') : 'Master'}</span>
                         <span>•</span>
-                        <span>{isGuest ? (currentUser?.rating || 1500) : 2395} LP</span>
+                        <span>{isGuest ? (currentUser?.rating || SCORING.defaultRating) : SCORING.simulated.ranked} LP</span>
                       </div>
                     </div>
                   </div>

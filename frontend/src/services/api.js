@@ -1,3 +1,5 @@
+import { SCORING } from '../config/scoring';
+
 function resolveApiBase() {
   if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
     return import.meta.env.VITE_API_URL;
@@ -286,7 +288,7 @@ export const leaderboardAPI = {
 
 // ============== PLAYER APIs (COMPATIBILITY) ==============
 export const playerAPI = {
-  register: (id, name, rating = 1500) =>
+  register: (id, name, rating = SCORING.defaultRating) =>
     apiRequest('/players/register', {
       method: 'POST',
       body: JSON.stringify({ id, name, rating }),

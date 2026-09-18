@@ -1,4 +1,5 @@
 import React from 'react';
+import { SCORING } from '../../config/scoring';
 
 function KpiCard({ label, icon, iconColor, badge, badgeColor, bigValue, subLeft, subRight }) {
   return (
@@ -32,7 +33,7 @@ export default function StatsGrid({ winRate, lp, solveTime, rank }) {
         label="League Points"
         icon="workspace_premium"
         iconColor="text-indigo-600"
-        bigValue={`${lp?.rating ?? 1500}`}
+        bigValue={`${lp?.rating ?? SCORING.defaultRating}`}
         subLeft={lp?.tier ? `Tier: ${lp.tier}` : 'Tier: Unranked'}
         subRight={lp?.nextTier ? `Next: ${lp.nextTier}` : ''}
       />

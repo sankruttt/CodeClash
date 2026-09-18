@@ -3,8 +3,9 @@ import Match from '../models/Match.js';
 import Room from '../models/Room.js';
 import CodingProblem from '../models/CodingProblem.js';
 import User from '../models/User.js';
-import { calculateRatingChange, updatePlayerStatsAfterMatch, addMatchHistory } from './scoringService.js';
+import { updatePlayerStatsAfterMatch, addMatchHistory } from './scoringService.js';
 import { getUserById } from './authService.js';
+import { SCORING } from '../config/scoring.js';
 
 async function buildPlayerEntry(userId, status = 'WAITING') {
   const user = await getUserById(userId);
@@ -12,7 +13,7 @@ async function buildPlayerEntry(userId, status = 'WAITING') {
     userId: mongoose.Types.ObjectId.isValid(userId) ? userId : undefined,
     username: user?.username || 'Player',
     avatar: user?.avatar || 'PL',
-    ratingBefore: user?.rating || 1500,
+    ratingBefore: user?.rating || SCORING.defaultRating,
     totalTime: 0,
     problemsSolved: 0,
     submissions: 0,
@@ -172,36 +173,36 @@ export function determineWinnerAndPoints(player1, player2) {
     winner = player1.userId;
     winnerId = player1.userId;
     result = 'player1';
-    rating1Change = 24;
-    rating2Change = -18;
+    rating1Change = SCORING.ranked.win;
+    rating2Change = SCORING.ranked.loss;
   } else if (p2Solved > p1Solved) {
     winner = player2.userId;
     winnerId = player2.userId;
     result = 'player2';
-    rating1Change = -18;
-    rating2Change = 24;
+    rating1Change = SCORING.ranked.loss;
+    rating2Change = SCORING.ranked.win;
   } else if (p1Solved > 0 && p2Solved > 0) {
     // Rule 2 — Completion time: If both players solved the same number of problems > 0
     if (p1Time < p2Time) {
       winner = player1.userId;
       winnerId = player1.userId;
       result = 'player1';
-      rating1Change = 24;
-      rating2Change = -18;
+      rating1Change = SCORING.ranked.win;
+      rating2Change = SCORING.ranked.loss;
     } else if (p2Time < p1Time) {
       winner = player2.userId;
       winnerId = player2.userId;
       result = 'player2';
-      rating1Change = -18;
-      rating2Change = 24;
+      rating1Change = SCORING.ranked.loss;
+      rating2Change = SCORING.ranked.win;
     } else {
       // Rule 4 — Tie: Same solved count and same completion time -> DRAW, 0 points each
       winner = null;
       winnerId = null;
       isDraw = true;
       result = 'draw';
-      rating1Change = 0;
-      rating2Change = 0;
+      rating1Change = SCORING.ranked.draw;
+      rating2Change = SCORING.ranked.draw;
     }
   } else {
     // Rule 3 — Neither player solved anything: Both solved 0 -> DRAW, 0 points each
@@ -209,8 +210,8 @@ export function determineWinnerAndPoints(player1, player2) {
     winnerId = null;
     isDraw = true;
     result = 'draw';
-    rating1Change = 0;
-    rating2Change = 0;
+    rating1Change = SCORING.ranked.draw;
+    rating2Change = SCORING.ranked.draw;
   }
 
   return {
@@ -306,7 +307,7 @@ export async function completeMatch(matchId) {
       userId: null,
       username: match.opponent || 'v0_Sniper',
       avatar: match.opponentAvatar || 'VS',
-      ratingBefore: match.opponentRating || 2395,
+      ratingBefore: match.opponentRating || SCORING.simulated.ranked,
       problemsSolved: 0,
       completionTime: 0,
       totalTime: 0,
@@ -332,8 +333,8 @@ export async function completeMatch(matchId) {
 
   const outcome = determineWinnerAndPoints(player1, player2);
 
-  const rating1Before = player1.ratingBefore || 1500;
-  const rating2Before = player2.ratingBefore || 1500;
+  const rating1Before = player1.ratingBefore || SCORING.defaultRating;
+  const rating2Before = player2.ratingBefore || SCORING.defaultRating;
 
   player1.ratingChange = outcome.rating1Change;
   player2.ratingChange = outcome.rating2Change;
@@ -399,10 +400,13 @@ export async function completeMatch(matchId) {
 export async function abandonMatch(matchId, leavingUserId, extra = {}) {
   let match = null;
 
-  if (matchId) {
-    match = await getMatchById(matchId);
+  // Deliberately fetch WITHOUT the auto-complete path (getMatchById). Auto
+  // completing inside an abandonment call would award standard duel deltas
+  // (+/- win/loss) to the remaining player instead of the abandonment reward.
+  // The atomic claim below keeps awarding authoritative and idempotent.
+  if (matchId && mongoose.Types.ObjectId.isValid(matchId)) {
+    match = await Match.findById(matchId);
   }
-
   if (!match && matchId) {
     const clean = String(matchId).replace(/^(room_|match_)/i, '').toUpperCase();
     match = await Match.findOne({ roomCode: clean });
@@ -437,8 +441,9 @@ export async function abandonMatch(matchId, leavingUserId, extra = {}) {
     match.difficulty = extra.difficulty;
   }
 
-  // If already completed or abandoned with rewards processed, return state
-  if (match.status === 'ABANDONED' && match.rewardsAwarded) {
+  // If already settled (completed OR abandoned-with-rewards), return state.
+  // Never overwrite a completed verdict with abandonment rewards.
+  if (match.status === 'COMPLETED' || (match.status === 'ABANDONED' && match.rewardsAwarded)) {
     return match;
   }
 
@@ -469,7 +474,7 @@ export async function abandonMatch(matchId, leavingUserId, extra = {}) {
       userId: leavingUserDoc?._id || leavingUserId,
       username: leavingUserDoc?.username || 'Combatant',
       avatar: leavingUserDoc?.avatar || 'KV',
-      ratingBefore: leavingUserDoc?.rating || 1500,
+      ratingBefore: leavingUserDoc?.rating || SCORING.defaultRating,
       problemsSolved: 0,
       status: 'DISCONNECTED'
     };
@@ -488,7 +493,7 @@ export async function abandonMatch(matchId, leavingUserId, extra = {}) {
       userId: null,
       username: match.opponent || 'v0_Sniper',
       avatar: match.opponentAvatar || 'VS',
-      ratingBefore: match.opponentRating || 2395,
+      ratingBefore: match.opponentRating || SCORING.simulated.ranked,
       problemsSolved: 1,
       status: 'FINISHED'
     };
@@ -498,41 +503,57 @@ export async function abandonMatch(matchId, leavingUserId, extra = {}) {
   remainingPlayer.status = 'FINISHED';
   match.winner = remainingPlayer.userId || null;
 
-  // Authoritative rating, rank, and history update
-  if (!match.rewardsAwarded) {
-    const penalty = 24;
-    const reward = 16;
+  // Authoritative rating, rank, and history update.
+  // Atomic claim: a client fires abandonRoom + abandonMatch concurrently; only the
+  // first request may process rewards, otherwise we'd double-award and write
+  // duplicate MatchHistory/stats records.
+  const claim = await Match.updateOne(
+    { _id: match._id, rewardsAwarded: { $ne: true } },
+    {
+      $set: {
+        status: 'ABANDONED',
+        rewardsAwarded: true,
+        completedAt: new Date()
+      }
+    }
+  ).catch(() => null);
 
-    const leavingBefore = leavingUserDoc?.rating || leavingPlayer.ratingBefore || 1500;
-    const leavingAfter = Math.max(0, leavingBefore - penalty);
-    leavingPlayer.ratingChange = -penalty;
-    leavingPlayer.ratingAfter = leavingAfter;
+  if (!claim || claim.modifiedCount === 0) {
+    const fresh = await Match.findById(match._id).catch(() => null);
+    return fresh || match;
+  }
 
-    const remainingBefore = remainingPlayer.ratingBefore || 1500;
-    const remainingAfter = remainingBefore + reward;
-    remainingPlayer.ratingChange = reward;
-    remainingPlayer.ratingAfter = remainingAfter;
+  const { leaverPenalty, remainingReward } = SCORING.abandonment;
 
-    match.rewardsAwarded = true;
-    match.rewardDetails = {
-      winnerId: remainingPlayer.userId || null,
-      abandonedBy: leavingPlayer.userId,
-      awardedAt: new Date(),
-      rewardedLp: reward,
-      penaltyLp: penalty
-    };
+  const leavingBefore = leavingUserDoc?.rating || leavingPlayer.ratingBefore || SCORING.defaultRating;
+  const leavingAfter = Math.max(0, leavingBefore + leaverPenalty);
+  leavingPlayer.ratingChange = leaverPenalty;
+  leavingPlayer.ratingAfter = leavingAfter;
+
+  const remainingBefore = remainingPlayer.ratingBefore || SCORING.defaultRating;
+  const remainingAfter = remainingBefore + remainingReward;
+  remainingPlayer.ratingChange = remainingReward;
+  remainingPlayer.ratingAfter = remainingAfter;
+
+  match.rewardsAwarded = true;
+  match.rewardDetails = {
+    winnerId: remainingPlayer.userId || null,
+    abandonedBy: leavingPlayer.userId,
+    awardedAt: new Date(),
+    rewardedLp: remainingReward,
+    penaltyLp: leaverPenalty
+  };
 
     // Update leaving player in MongoDB: User, PlayerStatistics, MatchHistory
-    if (leavingUserDoc?._id) {
-      await updatePlayerStatsAfterMatch(leavingUserDoc._id, match, leavingPlayer);
-      await addMatchHistory(leavingUserDoc._id, match, leavingPlayer, remainingPlayer);
-    }
+  if (leavingUserDoc?._id) {
+    await updatePlayerStatsAfterMatch(leavingUserDoc._id, match, leavingPlayer);
+    await addMatchHistory(leavingUserDoc._id, match, leavingPlayer, remainingPlayer);
+  }
 
-    // If opponent is a real registered user, update them as well
-    if (remainingPlayer.userId && mongoose.Types.ObjectId.isValid(remainingPlayer.userId)) {
-      await updatePlayerStatsAfterMatch(remainingPlayer.userId, match, remainingPlayer);
-      await addMatchHistory(remainingPlayer.userId, match, remainingPlayer, leavingPlayer);
-    }
+  // If opponent is a real registered user, update them as well
+  if (remainingPlayer.userId && mongoose.Types.ObjectId.isValid(remainingPlayer.userId)) {
+    await updatePlayerStatsAfterMatch(remainingPlayer.userId, match, remainingPlayer);
+    await addMatchHistory(remainingPlayer.userId, match, remainingPlayer, leavingPlayer);
   }
 
   await match.save();

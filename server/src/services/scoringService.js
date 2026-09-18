@@ -3,6 +3,7 @@ import PlayerStatistics from '../models/PlayerStatistics.js';
 import MatchHistory from '../models/MatchHistory.js';
 import User from '../models/User.js';
 import { recordUserActivity } from './streakService.js';
+import { SCORING } from '../config/scoring.js';
 
 // ============== RATING CALCULATION (ELO) ==============
 
@@ -53,7 +54,7 @@ export async function updatePlayerStatsAfterMatch(userId, match, playerResult) {
     : 0;
 
   stats.currentRating = playerResult.ratingAfter;
-  stats.peakRating = Math.max(stats.peakRating || 1500, playerResult.ratingAfter || 1500);
+  stats.peakRating = Math.max(stats.peakRating || SCORING.defaultRating, playerResult.ratingAfter || SCORING.defaultRating);
   stats.problemsSolved += playerResult.problemsSolved || 0;
   stats.problemsAttempted += playerResult.submissions > 0
     ? (playerResult.problemResults?.length || playerResult.problemsSolved || 0)
@@ -104,7 +105,11 @@ export async function updatePlayerStatsAfterMatch(userId, match, playerResult) {
 export async function addMatchHistory(userId, match, playerResult, opponentResult) {
   const isWin = match.winner && match.winner.toString() === userId.toString();
   const isDraw = match.result === 'draw';
-  const result = isWin ? 'win' : isDraw ? 'draw' : 'loss';
+  const isAbandoned = match.status === 'ABANDONED';
+  const forfeited =
+    isAbandoned && !!match.abandonedBy && match.abandonedBy.toString() === userId.toString();
+  const result = forfeited ? 'loss' : isWin ? 'win' : isDraw ? 'draw' : 'loss';
+  const outcome = isAbandoned ? 'abandoned' : 'completed';
 
   const startedAt = match.startedAt || new Date(Date.now() - (match.duration || 30) * 1000);
   const completedAt = match.completedAt || new Date();
@@ -135,8 +140,12 @@ export async function addMatchHistory(userId, match, playerResult, opponentResul
     score: `${mySolved}-${oppSolved}`,
     problemsSolved: mySolved,
     opponentProblemsSolved: oppSolved,
-    ratingChange: typeof playerResult.ratingChange === 'number' ? playerResult.ratingChange : (isWin ? 24 : isDraw ? 0 : -18),
-    ratingAfter: typeof playerResult.ratingAfter === 'number' ? playerResult.ratingAfter : 1500,
+    outcome,
+    forfeit: forfeited,
+    ratingChange: typeof playerResult.ratingChange === 'number'
+      ? playerResult.ratingChange
+      : (result === 'win' ? SCORING.ranked.win : result === 'draw' ? SCORING.ranked.draw : SCORING.ranked.loss),
+    ratingAfter: typeof playerResult.ratingAfter === 'number' ? playerResult.ratingAfter : SCORING.defaultRating,
     duration: match.duration || 0,
     solveTime: solveTime ?? null,
     language,
@@ -213,7 +222,7 @@ export async function getGlobalLeaderboard({ page = 1, limit = 20, sortBy = 'rat
       name: u.name || u.username,
       avatar: u.avatar || (u.name || u.username).slice(0, 2).toUpperCase(),
       color: u.color || 'gold',
-      rating: u.rating || 1500,
+      rating: u.rating || SCORING.defaultRating,
       wins: u.wins || 0,
       losses: u.losses || 0,
       draws: u.draws || 0,

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { SCORING, formatLp } from '../../config/scoring';
 
 const PILLARS = [
   {
@@ -37,7 +38,7 @@ const PILLARS = [
       'Completed duels move your League Points the moment they finish — wins add LP, losses deduct it, abandonments penalize the leaver, and draws clear even. Your tier and ladder position follow your rating.',
     footerLeft: 'Match Delta',
     footerLeftDot: 'bg-emerald-500',
-    footerRight: '+24 Win / -18 Loss',
+    footerRight: `${formatLp(SCORING.ranked.win, { omitUnit: true })} Win / ${formatLp(SCORING.ranked.loss, { omitUnit: true })} Loss`,
     footerRightColor: 'text-emerald-600',
   },
 ];

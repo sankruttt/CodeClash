@@ -1,5 +1,6 @@
 import React from 'react';
 import { getTierDetails } from '../../utils/tierUtils';
+import { SCORING } from '../../config/scoring';
 
 const RANK_STYLES = [
   { text: 'text-amber-600', chip: 'bg-amber-50 text-amber-700 border-amber-200' },
@@ -77,8 +78,8 @@ export default function VanguardLeaderboard({ top3, me, total, loading, onViewAl
                 rank={p.rank}
                 name={p.name || p.username}
                 avatar={p.avatar}
-                tier={getTierDetails(p.rating || 1500, p.tier).currentTier}
-                rating={p.rating || 1500}
+                tier={getTierDetails(p.rating || SCORING.defaultRating, p.tier).currentTier}
+                rating={p.rating || SCORING.defaultRating}
               />
             ))
           ) : (

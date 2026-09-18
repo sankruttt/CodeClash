@@ -21,6 +21,7 @@ import {
   clearAuthToken,
 } from './services/api';
 import { getTierDetails } from './utils/tierUtils';
+import { SCORING, formatLp } from './config/scoring';
 
 function getInitialUser() {
   const token = localStorage.getItem('codeclash_token') || sessionStorage.getItem('codeclash_token');
@@ -208,7 +209,7 @@ export default function App() {
       .then((res) => {
         if (res?.data?.user) {
           const u = res.data.user;
-          const tierDetails = getTierDetails(u.rating || 1500, u.tier);
+          const tierDetails = getTierDetails(u.rating || SCORING.defaultRating, u.tier);
           const combatant = {
             id: u._id || u.id,
             name: u.name || u.username,
@@ -216,7 +217,7 @@ export default function App() {
             handle: `@${u.username}`,
             avatar: u.avatar || (u.username ? u.username.slice(0, 2).toUpperCase() : 'KV'),
             color: u.color || 'indigo',
-            rating: u.rating || 1500,
+            rating: u.rating || SCORING.defaultRating,
             tier: tierDetails.currentTier,
             wins: u.wins || 0,
             losses: u.losses || 0,
@@ -250,7 +251,7 @@ export default function App() {
       const res = forceUser ? { data: { user: forceUser } } : await authAPI.getMe();
       if (res?.data?.user) {
         const u = res.data.user;
-        const tierDetails = getTierDetails(u.rating || 1500, u.tier);
+        const tierDetails = getTierDetails(u.rating || SCORING.defaultRating, u.tier);
         const combatant = {
           id: u._id || u.id,
           name: u.name || u.username,
@@ -258,7 +259,7 @@ export default function App() {
           handle: `@${u.username}`,
           avatar: u.avatar || (u.username ? u.username.slice(0, 2).toUpperCase() : 'KV'),
           color: u.color || 'indigo',
-          rating: u.rating || 1500,
+          rating: u.rating || SCORING.defaultRating,
           rank: u.rank || 1,
           tier: tierDetails.currentTier,
           wins: u.wins || 0,
@@ -339,7 +340,7 @@ export default function App() {
           matchmakingAPI.leaveQueue().catch(() => null);
           setMatchFoundModal({
             opponent: 'v0_Sniper',
-            opponentRating: 2395,
+            opponentRating: SCORING.simulated.ranked,
             opponentAvatar: 'VS',
             type: '1v1 Ranked Duel',
             problem: probTitle,
@@ -356,7 +357,7 @@ export default function App() {
           matchmakingAPI.leaveQueue().catch(() => null);
           setMatchFoundModal({
             opponent: 'v0_Sniper',
-            opponentRating: 2395,
+            opponentRating: SCORING.simulated.ranked,
             opponentAvatar: 'VS',
             type: '1v1 Ranked Duel',
             problem: 'Binary Search',
@@ -407,12 +408,12 @@ export default function App() {
             player1: {
               userId: currentUser?.id,
               username: currentUser?.name || currentUser?.username || 'You',
-              ratingBefore: currentUser?.rating || 1500,
+              ratingBefore: currentUser?.rating || SCORING.defaultRating,
             },
             player2: {
               userId: null,
               username: matchFoundModal.opponent || 'v0_Sniper',
-              ratingBefore: matchFoundModal.opponentRating || 2395,
+              ratingBefore: matchFoundModal.opponentRating || SCORING.simulated.ranked,
             },
             questions: questionIds,
           });
@@ -431,7 +432,7 @@ export default function App() {
           type: matchFoundModal.type || '1v1 Ranked Duel',
           isRanked: true,
           opponent: matchFoundModal.opponent,
-          opponentRating: matchFoundModal.opponentRating || 2395,
+          opponentRating: matchFoundModal.opponentRating || SCORING.simulated.ranked,
           opponentAvatar: matchFoundModal.opponentAvatar || 'VS',
           problem: problemList[0]?.title || matchFoundModal.problem,
           problemData: problemList[0] || matchFoundModal.problemData,
@@ -472,7 +473,7 @@ export default function App() {
       type: 'Private Scrimmage',
       isRanked: false,
       opponent: roomConfig?.opponent || 'v0_Sniper',
-      opponentRating: roomConfig?.opponentRating || 2180,
+      opponentRating: roomConfig?.opponentRating || SCORING.simulated.scrimmage,
       opponentAvatar: roomConfig?.opponentAvatar || 'VS',
       difficulty: roomConfig?.difficulty || 'Medium',
       timeLimit: roomConfig?.timeLimit || `${Math.floor(durationSeconds / 60) < 10 ? '0' : ''}${Math.floor(durationSeconds / 60)}:00`,
@@ -539,7 +540,7 @@ export default function App() {
     setPendingNavigationRoute(null);
     setRoute(destination);
     window.location.hash = destination;
-    setForfeitNotice('Match Abandoned (-24 LP)');
+    setForfeitNotice(`Match Abandoned (${formatLp(SCORING.abandonment.leaverPenalty)})`);
   };
 
   const handleCancelExit = () => {
@@ -550,14 +551,14 @@ export default function App() {
   const handleLoginSuccess = ({ user, token }) => {
     if (token) setAuthToken(token);
     const u = user || {};
-    const tierDetails = getTierDetails(u.rating || 1500, u.tier);
+    const tierDetails = getTierDetails(u.rating || SCORING.defaultRating, u.tier);
     const combatant = {
       id: u._id || u.id,
       name: u.username || u.name || 'Combatant',
       handle: `@${u.username || 'combatant'}`,
       avatar: u.avatar || (u.username ? u.username.slice(0, 2).toUpperCase() : 'KV'),
       color: u.color || 'indigo',
-      rating: u.rating || 1500,
+      rating: u.rating || SCORING.defaultRating,
       tier: tierDetails.currentTier,
       wins: u.wins || 0,
       losses: u.losses || 0,
@@ -574,14 +575,14 @@ export default function App() {
   const handleSignUpSuccess = ({ user, token, name, handle, email, avatar }) => {
     if (token) setAuthToken(token);
     const u = user || {};
-    const tierDetails = getTierDetails(u.rating || 1500, u.tier);
+    const tierDetails = getTierDetails(u.rating || SCORING.defaultRating, u.tier);
     const combatant = {
       id: u._id || u.id,
       name: name || u.username || 'Combatant',
       handle: handle || `@${u.username || 'combatant'}`,
       avatar: avatar || u.avatar || 'CC',
       color: u.color || 'indigo',
-      rating: u.rating || 1500,
+      rating: u.rating || SCORING.defaultRating,
       tier: tierDetails.currentTier,
       wins: u.wins || 0,
       losses: u.losses || 0,
@@ -600,7 +601,7 @@ export default function App() {
       setAuthToken(newToken);
     }
     setCurrentUser((prev) => {
-      const tierDetails = getTierDetails(updatedUserData?.rating || prev?.rating || 1500, updatedUserData?.tier || prev?.tier);
+      const tierDetails = getTierDetails(updatedUserData?.rating || prev?.rating || SCORING.defaultRating, updatedUserData?.tier || prev?.tier);
       const name = updatedUserData?.name || prev?.name || updatedUserData?.username || prev?.username;
       const username = updatedUserData?.username || prev?.username;
       const merged = {
@@ -741,7 +742,7 @@ export default function App() {
                 <span className="font-bold text-slate-900 text-xs font-sans">
                   {currentUser?.name || 'You'}
                 </span>
-                <span className="font-mono text-[11px] text-sky-600">{(currentUser?.rating || 1500).toLocaleString()} LP</span>
+                <span className="font-mono text-[11px] text-sky-600">{(currentUser?.rating || SCORING.defaultRating).toLocaleString()} LP</span>
               </div>
 
               <div className="font-mono font-black text-xl text-indigo-600 flex flex-col items-center">
@@ -756,7 +757,7 @@ export default function App() {
                 <span className="font-bold text-slate-900 text-xs font-sans">
                   {matchFoundModal.opponent}
                 </span>
-                <span className="font-mono text-[11px] text-slate-500">{(matchFoundModal.opponentRating || 1500).toLocaleString()} LP</span>
+                <span className="font-mono text-[11px] text-slate-500">{(matchFoundModal.opponentRating || SCORING.defaultRating).toLocaleString()} LP</span>
               </div>
             </div>
 
@@ -834,19 +835,19 @@ export default function App() {
             <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-left font-mono text-xs space-y-2.5">
               <div className="flex justify-between items-center text-slate-600">
                 <span>CURRENT RATING</span>
-                <span className="font-bold text-slate-900">{currentUser?.rating || 1500} LP</span>
+                <span className="font-bold text-slate-900">{currentUser?.rating || SCORING.defaultRating} LP</span>
               </div>
               <div className="flex justify-between items-center text-rose-600 font-bold">
                 <span className="flex items-center gap-1">
                   <span className="material-symbols-outlined text-xs">trending_down</span>
                   MIDWAY ABANDONMENT PENALTY
                 </span>
-                <span>-24 LP</span>
+                <span>{formatLp(SCORING.abandonment.leaverPenalty, { omitUnit: true })} LP</span>
               </div>
               <div className="border-t border-slate-200 pt-2 flex justify-between items-center">
                 <span className="text-slate-600 font-semibold">NEW RATING AFTER FORFEIT</span>
                 <span className="font-extrabold text-indigo-600 text-sm">
-                  {Math.max(0, (currentUser?.rating || 1500) - 24)} LP
+                  {Math.max(0, (currentUser?.rating || SCORING.defaultRating) + SCORING.abandonment.leaverPenalty)} LP
                 </span>
               </div>
             </div>
@@ -864,7 +865,7 @@ export default function App() {
                 className="py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-[0.99] text-white font-mono text-xs font-bold uppercase transition-all shadow-md shadow-rose-600/25 flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <span className="material-symbols-outlined text-sm">logout</span>
-                <span>FORFEIT (-24 LP)</span>
+                <span>FORFEIT ({formatLp(SCORING.abandonment.leaverPenalty)})</span>
               </button>
             </div>
           </div>

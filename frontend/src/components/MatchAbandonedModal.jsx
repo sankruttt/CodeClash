@@ -1,5 +1,6 @@
 import React from 'react';
 import { getTierDetails } from '../utils/tierUtils';
+import { SCORING } from '../config/scoring';
 
 /**
  * MatchAbandonedModal
@@ -77,7 +78,7 @@ export default function MatchAbandonedModal({
     return null;
   })();
 
-  const meTier = currentUser?.tier || getTierDetails(typeof meLP === 'number' ? meLP : 1500).currentTier;
+  const meTier = currentUser?.tier || getTierDetails(typeof meLP === 'number' ? meLP : SCORING.defaultRating).currentTier;
 
   // ----- Who abandoned? (defensive: card is only shown to the remaining player) -----
   const abandonedBy = matchResult?.abandonedBy ?? activeMatch?.abandonedBy ?? null;
@@ -92,14 +93,14 @@ export default function MatchAbandonedModal({
   // ----- Reward: abandonment-only card, always the authoritative +16 rule -----
   // Preferred source: backend-persisted rewardDetails.rewardedLp (new matches).
   // Older match records may still carry the pre-rule +24 in players[].ratingChange;
-  // this card never surfaces it because the abandonment reward is fixed at +16.
-  const ABANDONMENT_REWARD_LP = 16;
+  // this card never surfaces it because the abandonment reward comes from the
+  // canonical scoring config (imported straight from the backend source of truth).
   const rewardLP = (() => {
     const stored = matchResult?.rewardDetails?.rewardedLp;
     if (typeof stored === 'number' && stored !== 0) {
       return stored;
     }
-    return ABANDONMENT_REWARD_LP;
+    return SCORING.abandonment.remainingReward;
   })();
 
   // ----- Abandonment/disconnect moment (backend completedAt vs startedAt) -----

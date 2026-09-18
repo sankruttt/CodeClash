@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import logoImg from '../assets/codeclash-logo.png';
+import { SCORING } from '../config/scoring';
 
 const STITCH_LOGO_URL =
   'https://lh3.googleusercontent.com/aida/AEtjO1VkaA6KQmBEfQfLHrYIjjR4oGKWIHp1_CurDV8dkUOLfm1wboPXJDDOmiO5_Q53SFKmerv3V5dASxAes2QZ-yTXXenCF6yKwyLIXHfUUPl8D8tSTN5le0QvrjWh8S6juas_AMrCR3zcvP88ujMW1j8OexMQ66cxqVtd5iNHn2TfzJFyMz6Y7pPsl3P16O_L7a-ZoUxxhgm52M3B-owITbZTNWjcuONl60VhdeU7hfHLiuFQ31CuCvkvAkk';
@@ -139,7 +140,7 @@ export default function TopAppBar({
               </span>
               <span className="text-[11px] font-mono text-slate-300">•</span>
               <span className="text-[11px] font-mono text-slate-800 font-semibold">
-                {currentUser?.rating || 1500} LP
+                {currentUser?.rating || SCORING.defaultRating} LP
               </span>
             </div>
             <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider group-hover:text-indigo-600 transition-colors">

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getTierDetails } from '../utils/tierUtils';
 import { authAPI, leaderboardAPI } from '../services/api';
+import { SCORING } from '../config/scoring';
 
 export default function ProfileView({ navigate, currentUser, onUpdateUser }) {
   const [profileData, setProfileData] = useState(currentUser || null);
@@ -65,7 +66,7 @@ export default function ProfileView({ navigate, currentUser, onUpdateUser }) {
   }, [currentUser]);
 
   const user = profileData || currentUser;
-  const rating = user?.rating || 1500;
+  const rating = user?.rating || SCORING.defaultRating;
   const tierInfo = getTierDetails(rating, user?.tier);
   const wins = user?.wins ?? 0;
   const losses = user?.losses ?? 0;

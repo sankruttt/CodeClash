@@ -22,6 +22,15 @@ const matchHistorySchema = new mongoose.Schema({
     enum: ['win', 'loss', 'draw'],
     required: true
   },
+  outcome: {
+    type: String,
+    enum: ['completed', 'abandoned'],
+    default: 'completed'
+  },
+  forfeit: {
+    type: Boolean,
+    default: false
+  },
   score: String,  // e.g. "2-1"
   problemsSolved: { type: Number, default: 0 },
   opponentProblemsSolved: { type: Number, default: 0 },

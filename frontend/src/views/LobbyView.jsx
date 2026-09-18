@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { roomAPI } from '../services/api';
+import { SCORING, formatLp } from '../config/scoring';
 
 export default function LobbyView({ navigate, queueing, onToggleQueue, currentUser }) {
   const [roomCodeInput, setRoomCodeInput] = useState('');
@@ -183,9 +184,9 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
                   <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-100">
                     <div className="text-[10px] text-slate-400 font-medium">STAKE</div>
                     <div className="text-sm font-bold mt-0.5">
-                      <span className="text-emerald-600">+24 LP</span>
+                      <span className="text-emerald-600">{formatLp(SCORING.ranked.win)}</span>
                       <span className="text-black"> / </span>
-                      <span className="text-red-600"> -18 LP</span>
+                      <span className="text-red-600">{formatLp(SCORING.ranked.loss)}</span>
                     </div>
                   </div>
                 </div>
@@ -211,6 +212,51 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
               </div>
             </div>
 
+            {/* Arena Protocols & Rules */}
+            <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-xs space-y-4 font-mono text-xs">
+              <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
+                <span className="material-symbols-outlined text-base text-indigo-600">gavel</span>
+                <h2 className="text-sm font-semibold tracking-tight text-slate-900 font-sans">
+                  Arena Combat Rules
+                </h2>
+              </div>
+
+              <div className="space-y-3 font-sans text-xs text-slate-600">
+                <div className="flex items-start gap-2.5">
+                  <span className="w-5 h-5 rounded bg-indigo-50 text-indigo-700 font-mono font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">
+                    01
+                  </span>
+                  <div>
+                    <strong className="text-slate-900 font-semibold block">Authoritative Evaluation</strong>
+                    Code is compiled in sandboxed containers via OnlineCompiler.io. Solutions must pass all public and hidden test cases.
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-2.5">
+                  <span className="w-5 h-5 rounded bg-indigo-50 text-indigo-700 font-mono font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">
+                    02
+                  </span>
+                  <div>
+                    <strong className="text-slate-900 font-semibold block">Deterministic Rating Adjustments</strong>
+                    Victories yield {formatLp(SCORING.ranked.win)}; defeats lose {formatLp(SCORING.ranked.loss)}.
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-2.5">
+                  <span className="w-5 h-5 rounded bg-indigo-50 text-indigo-700 font-mono font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">
+                    03
+                  </span>
+                  <div>
+                    <strong className="text-slate-900 font-semibold block">Zero Tolerance for Abandonment</strong>
+                    Leaving an active match mid-way triggers immediate forfeiture ({formatLp(SCORING.abandonment.leaverPenalty)} penalty). The remaining combatant receives {formatLp(SCORING.abandonment.remainingReward)} compensation.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column (5 cols): Arena Rules & Compiler Info */}
+          <div className="lg:col-span-5 space-y-4">
             {/* PROTOCOL 02: Private War Room / Sandbox */}
             <div className="bg-white rounded-xl p-5 border border-slate-200/80 flex flex-col justify-between shadow-xs hover:border-slate-300 transition-all">
               <div className="space-y-4">
@@ -323,51 +369,6 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
                       JOIN ROOM KEY
                     </button>
                   </form>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Right Column (5 cols): Arena Rules & Compiler Info */}
-          <div className="lg:col-span-5 space-y-4">
-            {/* Arena Protocols & Rules */}
-            <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-xs space-y-4 font-mono text-xs">
-              <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
-                <span className="material-symbols-outlined text-base text-indigo-600">gavel</span>
-                <h2 className="text-sm font-semibold tracking-tight text-slate-900 font-sans">
-                  Arena Combat Rules
-                </h2>
-              </div>
-
-              <div className="space-y-3 font-sans text-xs text-slate-600">
-                <div className="flex items-start gap-2.5">
-                  <span className="w-5 h-5 rounded bg-indigo-50 text-indigo-700 font-mono font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">
-                    01
-                  </span>
-                  <div>
-                    <strong className="text-slate-900 font-semibold block">Authoritative Evaluation</strong>
-                    Code is compiled in sandboxed containers via OnlineCompiler.io. Solutions must pass all public and hidden test cases.
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-2.5">
-                  <span className="w-5 h-5 rounded bg-indigo-50 text-indigo-700 font-mono font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">
-                    02
-                  </span>
-                  <div>
-                    <strong className="text-slate-900 font-semibold block">Deterministic Rating Adjustments</strong>
-                    Victories yield +24 LP; defeats lose -18 LP. All rating transitions are committed directly to MongoDB.
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-2.5">
-                  <span className="w-5 h-5 rounded bg-indigo-50 text-indigo-700 font-mono font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">
-                    03
-                  </span>
-                  <div>
-                    <strong className="text-slate-900 font-semibold block">Zero Tolerance for Abandonment</strong>
-                    Leaving an active match mid-way triggers immediate forfeiture (-24 LP penalty). The remaining combatant receives +16 LP compensation.
-                  </div>
                 </div>
               </div>
             </div>

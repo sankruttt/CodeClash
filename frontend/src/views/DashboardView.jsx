@@ -3,6 +3,7 @@ import { getTierDetails } from '../utils/tierUtils';
 import { leaderboardAPI, problemAPI } from '../services/api';
 import StreakCard from '../components/StreakCard';
 import { formatGameTime } from './HistoryView';
+import { SCORING } from '../config/scoring';
 import CombatBriefing from '../components/dashboard/CombatBriefing';
 import WelcomeCard from '../components/dashboard/WelcomeCard';
 import StatsGrid from '../components/dashboard/StatsGrid';
@@ -17,7 +18,7 @@ function median(values) {
 }
 
 export default function DashboardView({ navigate, queueing, setQueueing, onToggleQueue, currentUser }) {
-  const rating = currentUser?.rating || 1500;
+  const rating = currentUser?.rating || SCORING.defaultRating;
   const tierInfo = getTierDetails(rating, currentUser?.tier);
   const [queueSeconds, setQueueSeconds] = useState(0);
 

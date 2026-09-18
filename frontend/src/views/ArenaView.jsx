@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { compilerAPI, problemAPI, matchAPI, roomAPI, authAPI } from '../services/api';
+import { SCORING } from '../config/scoring';
 import MatchCompleteModal from '../components/MatchCompleteModal';
 import MatchAbandonedModal from '../components/MatchAbandonedModal';
 
@@ -631,7 +632,7 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
               <span className="px-1 py-0.2 rounded text-[9px] bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono font-medium">
                 {currentUser?.tier || 'GM'}
               </span>
-              <span className="text-slate-400 text-[10px]">{(currentUser?.rating || 1500).toLocaleString()} LP</span>
+              <span className="text-slate-400 text-[10px]">{(currentUser?.rating || SCORING.defaultRating).toLocaleString()} LP</span>
             </div>
             <div className="flex items-center gap-1.5 mt-0.5 font-mono text-[10px]">
               {hasSolved ? (
@@ -687,7 +688,7 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
         <div className="flex items-center justify-end gap-3 min-w-[200px] text-right">
           <div className="flex flex-col items-end">
             <div className="flex items-center gap-1.5 font-mono text-[11px] justify-end">
-              <span className="text-slate-400 text-[10px]">{activeMatch?.opponentRating || 2395} LP</span>
+              <span className="text-slate-400 text-[10px]">{activeMatch?.opponentRating || SCORING.simulated.ranked} LP</span>
               <span className="px-1 py-0.2 rounded text-[9px] bg-sky-50 text-sky-700 border border-sky-200 font-mono font-medium">
                 MASTER
               </span>

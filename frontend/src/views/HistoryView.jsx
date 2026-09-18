@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { leaderboardAPI, matchAPI } from '../services/api';
+import { SCORING, formatLp } from '../config/scoring';
 
 export function formatGameTime(dateVal) {
   if (!dateVal) return 'Recent';
@@ -58,8 +59,13 @@ export default function HistoryView({ navigate, currentUser }) {
                 const upperResult = (m.result || '').toUpperCase();
                 const isWin = upperResult === 'WIN' || upperResult === 'VICTORY';
                 const isDraw = upperResult === 'DRAW';
-                const delta = m.ratingChange ?? (isWin ? 24 : isDraw ? 0 : -18);
-                const lpStr = (delta >= 0 ? `+${delta}` : `${delta}`) + ' LP';
+                // LP delta comes straight from the backend record; never
+                // recomputed here with client-side scoring rules.
+                const rawDelta = m.ratingChange;
+                const delta = typeof rawDelta === 'number' ? rawDelta : null;
+                const forfeit = Boolean(m.forfeit);
+                const abandoned = (m.outcome || '').toLowerCase() === 'abandoned';
+                const lpStr = delta == null ? null : formatLp(delta);
                 const rawDate = m.startedAt || m.createdAt;
                 return {
                   id: m._id || m.id || idx,
@@ -69,6 +75,8 @@ export default function HistoryView({ navigate, currentUser }) {
                   result: isWin ? 'VICTORY' : (isDraw ? 'DRAW' : 'DEFEAT'),
                   score: `${m.problemsSolved ?? 0} / ${(m.problemsSolved ?? 0) + 1}`,
                   lp: lpStr,
+                  forfeit,
+                  abandoned,
                   time: m.duration ? `${Math.floor(m.duration / 60)}:${(m.duration % 60).toString().padStart(2, '0')}` : '00:30',
                   solveTime: typeof m.solveTime === 'number' ? m.solveTime : null,
                   problem: m.problemTitle || (m.problems?.[0]?.title) || 'Algorithmic Duel',
@@ -100,7 +108,7 @@ export default function HistoryView({ navigate, currentUser }) {
                     opponentTier: 'Diamond',
                     result: isWin ? 'VICTORY' : 'DEFEAT',
                     score: '3 / 3',
-                    lp: isWin ? '+24 LP' : '-18 LP',
+                    lp: isWin ? formatLp(SCORING.ranked.win) : formatLp(SCORING.ranked.loss),
                     time: '04:30',
                     problem: m.questions?.[0]?.title || 'Algorithmic Clash',
                     diff: 'MED',
@@ -132,7 +140,7 @@ export default function HistoryView({ navigate, currentUser }) {
   const totalLosses = currentUser?.losses ?? 0;
   const totalDuels = totalWins + totalLosses > 0 ? totalWins + totalLosses : matches.length;
   const winRate = totalDuels > 0 ? ((totalWins / totalDuels) * 100).toFixed(1) : (matches.length > 0 ? '60.0' : '0.0');
-  const rating = currentUser?.rating || 1500;
+  const rating = currentUser?.rating || SCORING.defaultRating;
   const streak = currentUser?.streak ?? 0;
 
   // Median solve time across all recorded solves
@@ -358,13 +366,20 @@ export default function HistoryView({ navigate, currentUser }) {
                     >
                       {match.result}
                     </span>
-                    <span
-                      className={`text-xs font-bold mt-0.5 ${
-                        match.lp.startsWith('+') ? 'text-emerald-600' : 'text-rose-600'
-                      }`}
-                    >
-                      {match.lp}
-                    </span>
+                    {match.abandoned && (
+                      <span className="mt-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                        {match.forfeit ? 'Forfeited' : 'Opponent Forfeit'}
+                      </span>
+                    )}
+                    {match.lp != null && (
+                      <span
+                        className={`text-xs font-bold mt-0.5 ${
+                          String(match.lp).startsWith('+') ? 'text-emerald-600' : 'text-rose-600'
+                        }`}
+                      >
+                        {match.lp}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>

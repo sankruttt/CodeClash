@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { leaderboardAPI } from '../services/api';
 import { getTierDetails } from '../utils/tierUtils';
+import { SCORING } from '../config/scoring';
 
 const SUPPORTED_STACKS = ['All Stacks', 'C', 'C++', 'Java', 'JavaScript', 'Python'];
 
@@ -101,14 +102,14 @@ export default function LeaderboardView({ currentUser, onUserRefreshed }) {
     const losses = item.losses || 0;
     const totalDuels = wins + losses + (item.draws || 0);
     const calculatedWR = totalDuels > 0 ? `${((wins / totalDuels) * 100).toFixed(1)}%` : '0.0%';
-    const tierLabel = getTierDetails(item.rating || 1500, item.tier).currentTier;
+    const tierLabel = getTierDetails(item.rating || SCORING.defaultRating, item.tier).currentTier;
 
     return {
       rank: item.rank || pagination.page * 20 - 20 + idx + 1,
       rankFormatted: (item.rank || pagination.page * 20 - 20 + idx + 1).toString().padStart(2, '0'),
       userId: item.userId || item.id,
       name: item.name || item.username || 'Combatant',
-      rating: item.rating || 1500,
+      rating: item.rating || SCORING.defaultRating,
       winRate: item.winRate || calculatedWR,
       duels: totalDuels,
       stack: getStackForUser(item, idx),
@@ -139,7 +140,7 @@ export default function LeaderboardView({ currentUser, onUserRefreshed }) {
     const winRate = total > 0 ? `${((wins / total) * 100).toFixed(1)}%` : '0.0%';
     return {
       name: item.name || item.username || 'Champion',
-      rating: item.rating || 1500,
+      rating: item.rating || SCORING.defaultRating,
       winRate: item.winRate || winRate,
       stack: item.stack || 'Python',
       avatar: item.avatar || (item.username ? item.username.slice(0, 2).toUpperCase() : 'CC'),
@@ -153,7 +154,7 @@ export default function LeaderboardView({ currentUser, onUserRefreshed }) {
 
   // Authoritative current user details
   const myRank = userRankData?.rank;
-  const myRating = userRankData?.user?.rating ?? currentUser?.rating ?? 1500;
+  const myRating = userRankData?.user?.rating ?? currentUser?.rating ?? SCORING.defaultRating;
   const myWins = userRankData?.user?.wins ?? currentUser?.wins ?? 0;
   const myLosses = userRankData?.user?.losses ?? currentUser?.losses ?? 0;
   const myTotalDuels = myWins + myLosses;
