@@ -10,7 +10,7 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
   const [isGuestReady, setIsGuestReady] = useState(true);
   const [copied, setCopied] = useState(false);
   const [selectedDifficulty, setSelectedDifficulty] = useState('Medium');
-  const [timeLimit, setTimeLimit] = useState('15:00');
+  const [timeLimit, setTimeLimit] = useState('10:00');
   const [isStarting, setIsStarting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -47,6 +47,9 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
 
     const problem = data?.questions?.[0] || null;
     const opponent = isOwner ? (data?.guestName || challengerName) : (data?.hostName || hostName);
+    const resolvedDifficulty = data?.difficulty || selectedDifficulty || 'Medium';
+    const resolvedTimeLimit = data?.timeLimit || timeLimit || '10:00';
+    const resolvedDuration = data?.duration || (resolvedTimeLimit === '05:00' ? 300 : resolvedTimeLimit === '10:00' ? 600 : 900);
 
     const matchConfig = {
       matchId: data?.matchId || `room_${data?.code || roomCode}`,
@@ -55,12 +58,13 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
       opponent,
       opponentRating: isOwner ? 2395 : 2180,
       opponentAvatar: opponent.slice(0, 2).toUpperCase(),
-      difficulty: data?.difficulty || selectedDifficulty || 'Medium',
-      timeLimit: data?.timeLimit || timeLimit || '15:00',
-      duration: data?.duration || (data?.timeLimit === '05:00' ? 300 : data?.timeLimit === '10:00' ? 600 : data?.timeLimit === '20:00' ? 1200 : 900),
+      difficulty: resolvedDifficulty,
+      timeLimit: resolvedTimeLimit,
+      duration: resolvedDuration,
       problem: problem?.title || 'Binary Search',
       problemData: problem,
-      startedAt: data?.updatedAt || new Date().toISOString(),
+      questions: data?.questions || (problem ? [problem] : []),
+      startedAt: data?.startedAt || data?.updatedAt || new Date().toISOString(),
     };
 
     if (onStartBattle) {
@@ -139,9 +143,19 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
 
   const handleDifficultyChange = async (diff) => {
     setSelectedDifficulty(diff);
+    setRoomData((prev) => (prev ? { ...prev, difficulty: diff } : prev));
     if (isOwner) {
       try {
-        await roomAPI.updateSettings(roomCode, { difficulty: diff, timeLimit });
+        const hostId = currentUser?.id || roomData?.hostId;
+        const durSec = timeLimit === '05:00' ? 300 : timeLimit === '10:00' ? 600 : 900;
+        const res = await roomAPI.updateSettings(roomCode, {
+          difficulty: diff,
+          timeLimit,
+          duration: durSec,
+          hostId
+        });
+        const updated = res?.data?.room || res?.room;
+        if (updated) setRoomData(updated);
       } catch (err) {
         console.warn('Failed to persist difficulty setting:', err.message);
       }
@@ -150,9 +164,19 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
 
   const handleTimeLimitChange = async (time) => {
     setTimeLimit(time);
+    const durSec = time === '05:00' ? 300 : time === '10:00' ? 600 : 900;
+    setRoomData((prev) => (prev ? { ...prev, timeLimit: time, duration: durSec } : prev));
     if (isOwner) {
       try {
-        await roomAPI.updateSettings(roomCode, { difficulty: selectedDifficulty, timeLimit: time });
+        const hostId = currentUser?.id || roomData?.hostId;
+        const res = await roomAPI.updateSettings(roomCode, {
+          difficulty: selectedDifficulty,
+          timeLimit: time,
+          duration: durSec,
+          hostId
+        });
+        const updated = res?.data?.room || res?.room;
+        if (updated) setRoomData(updated);
       } catch (err) {
         console.warn('Failed to persist timeLimit setting:', err.message);
       }
@@ -390,6 +414,7 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
                 {['Easy', 'Medium', 'Hard'].map((diff) => (
                   <button
                     key={diff}
+                    id={`room-diff-${diff.toLowerCase()}`}
                     disabled={!isOwner}
                     onClick={() => handleDifficultyChange(diff)}
                     className={`px-2.5 py-1 rounded border transition-all ${
@@ -412,6 +437,7 @@ export default function PrivateRoomView({ navigate, currentUser, onStartBattle }
                 {['05:00', '10:00', '15:00'].map((time) => (
                   <button
                     key={time}
+                    id={`room-time-${time.replace(':', '-')}`}
                     disabled={!isOwner}
                     onClick={() => handleTimeLimitChange(time)}
                     className={`px-2.5 py-1 rounded border transition-all ${

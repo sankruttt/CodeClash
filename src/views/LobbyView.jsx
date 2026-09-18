@@ -9,13 +9,18 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
   const [rankedQuestions, setRankedQuestions] = useState(1);
   const [rankedDuration, setRankedDuration] = useState(10);
 
+  const [scrimmageDifficulty, setScrimmageDifficulty] = useState('Medium');
+  const [scrimmageDuration, setScrimmageDuration] = useState(10);
+
   const handleCreateRoom = async () => {
     setIsCreatingRoom(true);
     setErrorMsg('');
     try {
       const hostId = currentUser?.id || 'player_' + Math.random().toString(36).substr(2, 6);
       const hostName = currentUser?.name || currentUser?.username || 'Combatant';
-      const res = await roomAPI.createRoom(hostId, hostName);
+      const timeLimit = `${scrimmageDuration < 10 ? '0' : ''}${scrimmageDuration}:00`;
+      const durationSec = scrimmageDuration * 60;
+      const res = await roomAPI.createRoom(hostId, hostName, scrimmageDifficulty, timeLimit, durationSec);
       const code = res?.data?.code || res?.code;
       if (code) {
         sessionStorage.setItem('activeRoomCode', code);
@@ -235,8 +240,58 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
                   </div>
                 )}
 
+                {/* Scrimmage Configuration */}
+                <div className="pt-2 pb-1 space-y-3 bg-slate-50/70 p-3 rounded-lg border border-slate-200/80">
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] font-mono mb-1.5">
+                      <span className="text-slate-500 font-medium uppercase tracking-wider">Problem Difficulty</span>
+                      <span className="text-indigo-600 font-bold">{scrimmageDifficulty}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {['Easy', 'Medium', 'Hard'].map((diff) => (
+                        <button
+                          key={diff}
+                          id={`scrimmage-diff-${diff.toLowerCase()}`}
+                          type="button"
+                          onClick={() => setScrimmageDifficulty(diff)}
+                          className={`py-2 px-3 rounded-lg border font-mono text-xs font-semibold transition-all cursor-pointer ${scrimmageDifficulty === diff
+                            ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-2xs'
+                            : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                            }`}
+                        >
+                          {diff}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] font-mono mb-1.5">
+                      <span className="text-slate-500 font-medium uppercase tracking-wider">Match Duration</span>
+                      <span className="text-indigo-600 font-bold">{scrimmageDuration} Minutes</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[5, 10, 15].map((mins) => (
+                        <button
+                          key={mins}
+                          id={`scrimmage-dur-${mins}`}
+                          type="button"
+                          onClick={() => setScrimmageDuration(mins)}
+                          className={`py-2 px-3 rounded-lg border font-mono text-xs font-semibold transition-all cursor-pointer ${scrimmageDuration === mins
+                            ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-2xs'
+                            : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                            }`}
+                        >
+                          {mins} Minutes
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                   <button
+                    id="create-scrimmage-room-btn"
                     onClick={handleCreateRoom}
                     disabled={isCreatingRoom}
                     className="p-3 rounded-lg border border-slate-200 hover:border-indigo-500 bg-slate-50 hover:bg-white text-slate-800 font-mono text-xs font-semibold flex flex-col gap-1 text-left transition-all group cursor-pointer"
@@ -245,7 +300,7 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
                       <span className="material-symbols-outlined text-lg">add_circle</span>
                       <span className="text-[10px] text-slate-400 font-normal">INSTANT</span>
                     </div>
-                    <span>{isCreatingRoom ? 'GENERATING...' : 'CREATE NEW ROOM'}</span>
+                    <span>{isCreatingRoom ? 'GENERATING...' : `CREATE ROOM (${scrimmageDifficulty} • ${scrimmageDuration}M)`}</span>
                     <span className="text-[10px] text-slate-400 font-sans font-normal">
                       Generates unique 6-character room key
                     </span>
@@ -311,7 +366,7 @@ export default function LobbyView({ navigate, queueing, onToggleQueue, currentUs
                   </span>
                   <div>
                     <strong className="text-slate-900 font-semibold block">Zero Tolerance for Abandonment</strong>
-                    Leaving an active match mid-way triggers immediate forfeiture (-24 LP penalty). The remaining combatant receives +25 LP compensation.
+                    Leaving an active match mid-way triggers immediate forfeiture (-24 LP penalty). The remaining combatant receives +24 LP compensation.
                   </div>
                 </div>
               </div>

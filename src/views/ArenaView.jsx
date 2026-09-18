@@ -2,95 +2,85 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { compilerAPI, problemAPI, matchAPI, roomAPI, authAPI } from '../services/api';
 import MatchCompleteModal from '../components/MatchCompleteModal';
 
-const fallbackCode = `function search(nums, target) {
-  // Binary Search Implementation
-  let left = 0;
-  let right = nums.length - 1;
-  while (left <= right) {
-    const mid = Math.floor((left + right) / 2);
-    if (nums[mid] === target) return mid;
-    if (nums[mid] < target) left = mid + 1;
-    else right = mid - 1;
-  }
-  return -1;
-}
-
-// Test call
-console.log(search([-1, 0, 3, 5, 9, 12], 9));`;
+import {
+  normalizeStackToDropdown,
+  getStarterCodeKey,
+  normalizeCodeFormat,
+  getStarterCodeForProblemAndLang,
+} from '../utils/compilerHelpers';
 
 const parseDurationSeconds = (val) => {
-  if (typeof val === 'number' && val > 0) return val;
+  if (typeof val === 'number' && val > 0) {
+    if ([5, 10, 15].includes(val)) return val * 60;
+    return val;
+  }
   if (typeof val === 'string') {
-    const parts = val.split(':');
-    if (parts.length === 2) {
-      return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+    const trimmed = val.trim();
+    if (trimmed.includes(':')) {
+      const parts = trimmed.split(':').map(Number);
+      if (parts.length === 2 && !isNaN(parts[0])) {
+        return parts[0] * 60 + (parts[1] || 0);
+      }
     }
-    const parsed = parseInt(val, 10);
-    if (!isNaN(parsed) && parsed > 0) return parsed;
+    const parsed = parseInt(trimmed, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      if ([5, 10, 15].includes(parsed)) return parsed * 60;
+      return parsed;
+    }
   }
-  return 15 * 60;
-};
-
-// Defensive helper to ensure starter code has proper multiline newlines
-const normalizeCodeFormat = (raw) => {
-  if (!raw || typeof raw !== 'string') return '';
-  let formatted = raw;
-  if (formatted.includes('\\n')) {
-    formatted = formatted.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n');
-  }
-  return formatted;
-};
-
-const getStarterCodeForLang = (lang, p) => {
-  const l = (lang || '').toLowerCase();
-  let raw = '';
-  if (l === 'c') {
-    raw = p?.starterCode?.c || `#include <stdio.h>\n\nint main() {\n    return 0;\n}\n`;
-  } else if (l.includes('c++') || l.includes('cpp')) {
-    raw = p?.starterCode?.cpp || `#include <iostream>\nusing namespace std;\n\nint main() {\n    return 0;\n}\n`;
-  } else if (l.includes('java')) {
-    raw = p?.starterCode?.java || `import java.util.*;\n\npublic class Solution {\n    public static void main(String[] args) {\n    }\n}\n`;
-  } else if (l.includes('python')) {
-    raw = p?.starterCode?.python || `def solve():\n    pass\n\nif __name__ == '__main__':\n    solve()\n`;
-  } else {
-    raw = p?.starterCode?.javascript || fallbackCode;
-  }
-  return normalizeCodeFormat(raw);
+  return 10 * 60;
 };
 
 export default function ArenaView({ navigate, currentUser, activeMatch, onCleanExit, onTriggerForfeit, onForfeit, onMatchComplete }) {
   const initialProblems = Array.isArray(activeMatch?.problems) && activeMatch.problems.length > 0
     ? activeMatch.problems
     : activeMatch?.problemData
-    ? [activeMatch.problemData]
-    : [];
+      ? [activeMatch.problemData]
+      : [];
 
   const [problems, setProblems] = useState(initialProblems);
   const [activeProblemIndex, setActiveProblemIndex] = useState(0);
   const [solvedProblemIds, setSolvedProblemIds] = useState(new Set());
 
   const problem = problems[activeProblemIndex] || null;
-  const activeProblemId = problem?._id || problem?.id || `prob_${activeProblemIndex}`;
+  const activeProblemId = problem?._id ? String(problem._id) : (problem?.id ? String(problem.id) : `prob_${activeProblemIndex}`);
 
-  const [selectedLanguage, setSelectedLanguage] = useState('JavaScript');
-  const [codeByProblem, setCodeByProblem] = useState(() => {
-    const map = {};
-    initialProblems.forEach((p, idx) => {
-      const pid = p?._id || p?.id || `prob_${idx}`;
-      const raw = p?.starterCode?.javascript || fallbackCode;
-      map[pid] = normalizeCodeFormat(raw);
-    });
-    return map;
-  });
+  // Default compiler language based on the Primary Stack from backend/user profile
+  const [hasUserExplicitlySelectedLang, setHasUserExplicitlySelectedLang] = useState(false);
+  const initialLanguage = normalizeStackToDropdown(currentUser?.primaryStack || currentUser?.stack);
+  const [selectedLanguage, setSelectedLanguage] = useState(initialLanguage);
 
-  const code = codeByProblem[activeProblemId] !== undefined
-    ? codeByProblem[activeProblemId]
-    : normalizeCodeFormat(getStarterCodeForLang(selectedLanguage, problem));
+  // Sync selectedLanguage if authoritative user profile loads or changes and user hasn't explicitly overridden it
+  useEffect(() => {
+    if (!hasUserExplicitlySelectedLang) {
+      if (currentUser?.primaryStack || currentUser?.stack) {
+        setSelectedLanguage(normalizeStackToDropdown(currentUser.primaryStack || currentUser.stack));
+      } else {
+        authAPI.getMe().then((res) => {
+          const u = res?.data?.user || res?.user;
+          if (u?.primaryStack || u?.stack) {
+            setSelectedLanguage(normalizeStackToDropdown(u.primaryStack || u.stack));
+          }
+        }).catch(() => null);
+      }
+    }
+  }, [currentUser?.primaryStack, currentUser?.stack, hasUserExplicitlySelectedLang]);
+
+  // Map of [problemId::canonicalLang] -> user edited or loaded code
+  const [codeByProblemAndLang, setCodeByProblemAndLang] = useState({});
+
+  const canonicalLang = getStarterCodeKey(selectedLanguage);
+  const codeKey = `${activeProblemId}::${canonicalLang}`;
+  const currentStarterCode = getStarterCodeForProblemAndLang(problem, selectedLanguage);
+
+  const code = codeByProblemAndLang[codeKey] !== undefined
+    ? codeByProblemAndLang[codeKey]
+    : currentStarterCode;
 
   const setCode = (newCode) => {
-    setCodeByProblem((prev) => ({
+    setCodeByProblemAndLang((prev) => ({
       ...prev,
-      [activeProblemId]: newCode
+      [codeKey]: newCode
     }));
   };
 
@@ -98,11 +88,11 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
   const [isRunning, setIsRunning] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const totalMatchSeconds = parseDurationSeconds(activeMatch?.duration || activeMatch?.timeLimit || '15:00');
+  const totalMatchSeconds = parseDurationSeconds(activeMatch?.duration || activeMatch?.timeLimit || '10:00');
   const [timeLeft, setTimeLeft] = useState(() => {
     if (activeMatch?.startedAt) {
       const elapsed = Math.floor((Date.now() - new Date(activeMatch.startedAt).getTime()) / 1000);
-      if (elapsed > 0 && elapsed < totalMatchSeconds) {
+      if (elapsed >= 0 && elapsed < totalMatchSeconds) {
         return totalMatchSeconds - elapsed;
       }
     }
@@ -124,36 +114,49 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
   const [opponentSolved, setOpponentSolved] = useState(false);
   const [opponentSolveTime, setOpponentSolveTime] = useState(null);
 
-  // Fetch problems if not present in activeMatch
+  // Fetch problems if not present in activeMatch or unpopulated
   useEffect(() => {
-    if (problems.length === 0) {
-      const count = activeMatch?.questionCount || 1;
-      problemAPI.getRandomProblems(count)
-        .then((res) => {
-          const list = Array.isArray(res?.data?.problems)
-            ? res.data.problems
-            : Array.isArray(res?.data)
-            ? res.data
-            : res?.data?.problem
-            ? [res.data.problem]
-            : [];
-          if (list.length > 0) {
+    let isMounted = true;
+    const needsFetch = !problems || problems.length === 0 || typeof problems[0] === 'string' || !problems[0]?.starterCode;
+    if (needsFetch) {
+      const matchId = activeMatch?.matchId || activeMatch?.id;
+      if (matchId) {
+        matchAPI.getMatch(matchId)
+          .then((res) => {
+            if (!isMounted) return null;
+            const m = res?.data?.match || res?.match;
+            if (Array.isArray(m?.problems) && m.problems.length > 0 && typeof m.problems[0] === 'object' && m.problems[0]?.starterCode) {
+              return m.problems;
+            }
+            const count = activeMatch?.questionCount || 1;
+            const diff = activeMatch?.difficulty || '';
+            return problemAPI.getRandomProblems(count, diff).then((r) => r?.data?.problems || r?.data || []);
+          })
+          .then((list) => {
+            if (!isMounted || !list || list.length === 0) return;
             setProblems(list);
-            setCodeByProblem((prev) => {
-              const map = { ...prev };
-              list.forEach((p, idx) => {
-                const pid = p?._id || p?.id || `prob_${idx}`;
-                if (map[pid] === undefined) {
-                  map[pid] = normalizeCodeFormat(p?.starterCode?.javascript || fallbackCode);
-                }
-              });
-              return map;
-            });
-          }
-        })
-        .catch((err) => console.warn('Problem fetch notice:', err));
+          })
+          .catch((err) => console.warn('Problem fetch notice:', err));
+      } else {
+        const count = activeMatch?.questionCount || 1;
+        const diff = activeMatch?.difficulty || '';
+        problemAPI.getRandomProblems(count, diff)
+          .then((res) => {
+            if (!isMounted) return;
+            const list = Array.isArray(res?.data?.problems)
+              ? res.data.problems
+              : Array.isArray(res?.data)
+                ? res.data
+                : [];
+            if (list.length > 0) {
+              setProblems(list);
+            }
+          })
+          .catch((err) => console.warn('Problem fetch notice:', err));
+      }
     }
-  }, [problems.length, activeMatch]);
+    return () => { isMounted = false; };
+  }, [activeMatch, problems]);
 
   // Countdown timer based on server duration
   useEffect(() => {
@@ -233,7 +236,7 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
                 try {
                   const parsed = JSON.parse(stored);
                   sessionStorage.setItem('codeclash_active_match', JSON.stringify({ ...parsed, status: 'completed', isCompleted: true }));
-                } catch {}
+                } catch { }
               }
               authAPI.getMe().catch(() => null);
               return;
@@ -245,7 +248,7 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
                 try {
                   const parsed = JSON.parse(stored);
                   sessionStorage.setItem('codeclash_active_match', JSON.stringify({ ...parsed, status: 'abandoned', isAbandoned: true }));
-                } catch {}
+                } catch { }
               }
               return;
             }
@@ -254,7 +257,7 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
               // Current player
               const pMe = m.players.find(
                 (p) => (currentUser?.id && String(p.userId) === String(currentUser.id)) ||
-                       (currentUser?.username && p.username === currentUser.username)
+                  (currentUser?.username && p.username === currentUser.username)
               );
               if (pMe && pMe.problemsSolved > 0) {
                 setHasSolved(true);
@@ -266,7 +269,7 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
               // Opponent
               const pOpp = m.players.find(
                 (p) => (!currentUser?.id || String(p.userId) !== String(currentUser.id)) &&
-                       (!currentUser?.username || p.username !== currentUser.username)
+                  (!currentUser?.username || p.username !== currentUser.username)
               );
               if (pOpp && pOpp.problemsSolved > 0) {
                 setOpponentSolved(true);
@@ -280,9 +283,9 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
 
         const isPrivateRoom = Boolean(
           (activeMatch?.isPrivate ||
-           activeMatch?.type === 'scrimmage' ||
-           activeMatch?.type === 'private' ||
-           activeMatch?.type === 'Private Scrimmage') &&
+            activeMatch?.type === 'scrimmage' ||
+            activeMatch?.type === 'private' ||
+            activeMatch?.type === 'Private Scrimmage') &&
           !String(roomCode || '').startsWith('RK-')
         );
 
@@ -296,7 +299,7 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
               try {
                 const parsed = JSON.parse(stored);
                 sessionStorage.setItem('codeclash_active_match', JSON.stringify({ ...parsed, status: 'abandoned', isAbandoned: true }));
-              } catch {}
+              } catch { }
             }
             return;
           }
@@ -320,21 +323,30 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
   };
 
   const handleLanguageChange = (newLang) => {
-    setSelectedLanguage(newLang);
-    setCode(getStarterCodeForLang(newLang, problem));
+    const normalizedNewLang = normalizeStackToDropdown(newLang);
+    setHasUserExplicitlySelectedLang(true);
+    setSelectedLanguage(normalizedNewLang);
+
+    // Immediately load the starter code for the new language for current problem
+    const newCanonical = getStarterCodeKey(normalizedNewLang);
+    const newKey = `${activeProblemId}::${newCanonical}`;
+    const starter = getStarterCodeForProblemAndLang(problem, normalizedNewLang);
+    setCodeByProblemAndLang((prev) => ({
+      ...prev,
+      [newKey]: starter
+    }));
   };
 
   const handleResetCode = () => {
-    setCode(getStarterCodeForLang(selectedLanguage, problem));
+    const starter = getStarterCodeForProblemAndLang(problem, selectedLanguage);
+    setCodeByProblemAndLang((prev) => ({
+      ...prev,
+      [codeKey]: starter
+    }));
   };
 
   const getNormalizedLang = () => {
-    const l = selectedLanguage.toLowerCase();
-    if (l === 'c') return 'c';
-    if (l.includes('c++') || l.includes('cpp')) return 'cpp';
-    if (l.includes('java')) return 'java';
-    if (l.includes('python')) return 'python';
-    return 'javascript';
+    return getStarterCodeKey(selectedLanguage);
   };
 
   // Run code against OnlineCompiler.io
@@ -528,23 +540,23 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
 
   const defaultTestCases = (problem?.examples && problem.examples.length > 0)
     ? problem.examples.map((ex, idx) => ({
-        testCaseId: `tc-${idx + 1}`,
-        passed: true,
-        input: ex.input,
-        expectedOutput: ex.output,
-        actualOutput: ex.output,
-        error: null,
-      }))
+      testCaseId: `tc-${idx + 1}`,
+      passed: true,
+      input: ex.input,
+      expectedOutput: ex.output,
+      actualOutput: ex.output,
+      error: null,
+    }))
     : [
-        {
-          testCaseId: 'tc-1',
-          passed: true,
-          input: 'nums = [1, 2, 3], target = 2',
-          expectedOutput: '1',
-          actualOutput: '1',
-          error: null,
-        },
-      ];
+      {
+        testCaseId: 'tc-1',
+        passed: true,
+        input: 'nums = [1, 2, 3], target = 2',
+        expectedOutput: '1',
+        actualOutput: '1',
+        error: null,
+      },
+    ];
 
   const testCasesList =
     executionResult?.testResults && executionResult.testResults.length > 0
@@ -568,7 +580,7 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
               Your opponent has left the match. The match has been abandoned.
             </p>
             <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-800 text-xs font-mono">
-              ✓ Abandonment reward processed (+25 LP)
+              ✓ Abandonment reward processed (+24 LP)
             </div>
             <button
               onClick={() => {
@@ -643,8 +655,12 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
         <div className="flex flex-col items-center justify-center">
           <div className="flex items-center gap-2 px-3 py-0.5 rounded bg-slate-50 border border-slate-200 shadow-2xs">
             <span className="material-symbols-outlined text-[14px] text-slate-400">schedule</span>
-            <span className="font-mono text-[13px] font-semibold tracking-wider text-slate-900">
+            <span id="arena-timer" className="font-mono text-[13px] font-semibold tracking-wider text-slate-900">
               {formatTimer(timeLeft)}
+            </span>
+            <span className="text-slate-300">|</span>
+            <span id="arena-match-config" className="font-mono text-[10px] text-indigo-600 font-bold uppercase">
+              {Math.floor(totalMatchSeconds / 60)}M • {activeMatch?.difficulty || 'MEDIUM'}
             </span>
             <span className="text-slate-300">|</span>
             <span className="font-mono text-[10px] text-slate-500 font-medium uppercase">
@@ -726,40 +742,79 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
         <section className="col-span-12 lg:col-span-4 flex flex-col border-r border-slate-200/80 bg-white overflow-hidden h-full">
           {/* Multi-Question Selector Bar */}
           {problems.length > 1 && (
-            <div className="h-10 bg-slate-50 border-b border-slate-200 px-3 flex items-center gap-1.5 shrink-0 overflow-x-auto">
-              <span className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wider pr-1">
-                Questions ({solvedProblemIds.size}/{problems.length}):
-              </span>
-              {problems.map((p, idx) => {
-                const pId = p?._id || p?.id || `prob_${idx}`;
-                const isSolved = solvedProblemIds.has(pId);
-                const isActive = activeProblemIndex === idx;
-                return (
-                  <button
-                    key={pId}
-                    type="button"
-                    onClick={() => {
-                      setActiveProblemIndex(idx);
+            <div className="h-10 bg-slate-50 border-b border-slate-200 px-3 flex items-center justify-between shrink-0 overflow-x-auto gap-2">
+              <div className="flex items-center gap-1.5 overflow-x-auto">
+                <span className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wider pr-1 shrink-0">
+                  Questions ({solvedProblemIds.size}/{problems.length}):
+                </span>
+                {problems.map((p, idx) => {
+                  const pId = p?._id || p?.id || `prob_${idx}`;
+                  const isSolved = solvedProblemIds.has(pId);
+                  const isActive = activeProblemIndex === idx;
+                  return (
+                    <button
+                      key={pId}
+                      id={`question-tab-${idx + 1}`}
+                      type="button"
+                      onClick={() => {
+                        setActiveProblemIndex(idx);
+                        setActiveCaseIndex(0);
+                        setExecutionResult(null);
+                      }}
+                      className={`px-2.5 py-1 rounded text-xs font-mono font-semibold flex items-center gap-1.5 transition-all cursor-pointer border shrink-0 ${isActive
+                          ? 'bg-white border-indigo-500 text-indigo-700 shadow-2xs'
+                          : isSolved
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                            : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                        }`}
+                    >
+                      {isSolved ? (
+                        <span className="material-symbols-outlined text-[13px] text-emerald-600">check_circle</span>
+                      ) : (
+                        <span className="text-[11px] font-bold">Q{idx + 1}</span>
+                      )}
+                      <span className="truncate max-w-[90px]">{p.title || `Q${idx + 1}`}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  id="prev-question-btn"
+                  type="button"
+                  disabled={activeProblemIndex <= 0}
+                  onClick={() => {
+                    if (activeProblemIndex > 0) {
+                      setActiveProblemIndex(activeProblemIndex - 1);
                       setActiveCaseIndex(0);
                       setExecutionResult(null);
-                    }}
-                    className={`px-2.5 py-1 rounded text-xs font-mono font-semibold flex items-center gap-1.5 transition-all cursor-pointer border ${
-                      isActive
-                        ? 'bg-white border-indigo-500 text-indigo-700 shadow-2xs'
-                        : isSolved
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
-                        : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
-                    }`}
-                  >
-                    {isSolved ? (
-                      <span className="material-symbols-outlined text-[13px] text-emerald-600">check_circle</span>
-                    ) : (
-                      <span className="text-[11px] font-bold">Q{idx + 1}</span>
-                    )}
-                    <span className="truncate max-w-[90px]">{p.title || `Q${idx + 1}`}</span>
-                  </button>
-                );
-              })}
+                    }
+                  }}
+                  className="px-2 py-0.5 rounded text-xs font-mono font-medium border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-0.5 cursor-pointer text-slate-700 shadow-2xs"
+                  title="Previous Question"
+                >
+                  <span className="material-symbols-outlined text-[14px]">chevron_left</span>
+                  <span>Prev</span>
+                </button>
+                <button
+                  id="next-question-btn"
+                  type="button"
+                  disabled={activeProblemIndex >= problems.length - 1}
+                  onClick={() => {
+                    if (activeProblemIndex < problems.length - 1) {
+                      setActiveProblemIndex(activeProblemIndex + 1);
+                      setActiveCaseIndex(0);
+                      setExecutionResult(null);
+                    }
+                  }}
+                  className="px-2.5 py-0.5 rounded text-xs font-mono font-semibold border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-0.5 cursor-pointer shadow-2xs"
+                  title="Next Question"
+                >
+                  <span>Next Question</span>
+                  <span className="material-symbols-outlined text-[14px]">chevron_right</span>
+                </button>
+              </div>
             </div>
           )}
 
@@ -769,8 +824,8 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
               <button
                 onClick={() => setCurrentTab('spec')}
                 className={`px-2.5 py-1 rounded font-semibold border transition-all cursor-pointer ${currentTab === 'spec'
-                    ? 'bg-white text-slate-900 border-slate-200 shadow-2xs'
-                    : 'text-slate-500 hover:text-slate-800 border-transparent'
+                  ? 'bg-white text-slate-900 border-slate-200 shadow-2xs'
+                  : 'text-slate-500 hover:text-slate-800 border-transparent'
                   }`}
               >
                 Problem: {problem?.title || 'Binary Search'}
@@ -778,8 +833,8 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
               <button
                 onClick={() => setCurrentTab('submissions')}
                 className={`px-2 py-1 rounded transition-all cursor-pointer ${currentTab === 'submissions'
-                    ? 'bg-white text-slate-900 border-slate-200 shadow-2xs font-semibold'
-                    : 'text-slate-500 hover:text-slate-800'
+                  ? 'bg-white text-slate-900 border-slate-200 shadow-2xs font-semibold'
+                  : 'text-slate-500 hover:text-slate-800'
                   }`}
               >
                 Submissions ({pastSubmissions.length})
@@ -797,7 +852,16 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
                   <h1 className="text-sm font-semibold text-slate-900 tracking-tight font-mono">
                     {problem?.title || 'Binary Search'}
                   </h1>
-                  <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-semibold bg-amber-50 text-amber-700 border border-amber-200 uppercase">
+                  <span
+                    id="problem-difficulty-badge"
+                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono font-semibold uppercase ${
+                      (problem?.difficulty || activeMatch?.difficulty)?.toUpperCase() === 'EASY'
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        : (problem?.difficulty || activeMatch?.difficulty)?.toUpperCase() === 'HARD'
+                          ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                          : 'bg-amber-50 text-amber-700 border border-amber-200'
+                    }`}
+                  >
                     {problem?.difficulty || activeMatch?.difficulty || 'MEDIUM'}
                   </span>
                   <span className="text-[11px] font-mono text-slate-500 ml-auto font-medium">
@@ -880,14 +944,12 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
                   <div key={s.id} className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5 shadow-2xs">
                     <div className="flex justify-between items-center">
                       <div className="flex items-center gap-1.5">
-                        <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider ${
-                          s.type === 'RUN' ? 'bg-slate-200 text-slate-700' : 'bg-indigo-100 text-indigo-800 border border-indigo-200'
-                        }`}>
+                        <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider ${s.type === 'RUN' ? 'bg-slate-200 text-slate-700' : 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                          }`}>
                           {s.type === 'RUN' ? 'TEST RUN' : 'SUBMIT'}
                         </span>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          s.status === 'Accepted' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-rose-100 text-rose-800 border border-rose-200'
-                        }`}>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${s.status === 'Accepted' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-rose-100 text-rose-800 border border-rose-200'
+                          }`}>
                           {s.status}
                         </span>
                       </div>
@@ -917,6 +979,7 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
               </span>
               <span className="text-slate-300">|</span>
               <select
+                id="compiler-language-select"
                 value={selectedLanguage}
                 onChange={(e) => handleLanguageChange(e.target.value)}
                 className="px-2 py-0.5 rounded bg-white text-xs font-mono font-medium border border-slate-200 text-slate-800 cursor-pointer shadow-2xs focus:outline-none"
@@ -932,6 +995,7 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
 
             <div className="flex items-center gap-1 text-slate-500">
               <button
+                id="compiler-reset-btn"
                 onClick={handleResetCode}
                 className="p-1 rounded hover:text-slate-900 hover:bg-slate-200 transition-colors cursor-pointer"
                 title="Reset Code Template"
@@ -952,8 +1016,10 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
               ))}
             </div>
 
-            {/* Code Textarea */}
+            {/* Code Textarea with component key to guarantee fresh reinitialization on problem/language change */}
             <textarea
+              key={`${activeProblemId}_${canonicalLang}`}
+              id="compiler-code-textarea"
               value={code}
               onChange={(e) => setCode(e.target.value)}
               disabled={isAbandoned}
@@ -1004,8 +1070,8 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
               {executionResult && (
                 <span
                   className={`px-1.5 py-0.2 rounded text-[10px] font-semibold border ${executionResult.status === 'Accepted'
-                      ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                      : 'bg-red-100 text-red-800 border-red-200'
+                    ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                    : 'bg-red-100 text-red-800 border-red-200'
                     }`}
                 >
                   {executionResult.status}
@@ -1026,12 +1092,12 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
                 key={idx}
                 onClick={() => setActiveCaseIndex(idx)}
                 className={`px-2 py-0.5 rounded text-[10px] font-mono border flex items-center gap-1 font-semibold transition-all cursor-pointer ${activeCaseIndex === idx
-                    ? tc.passed
-                      ? 'bg-emerald-200 text-emerald-900 border-emerald-400'
-                      : 'bg-red-200 text-red-900 border-red-400'
-                    : tc.passed
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                      : 'bg-red-50 text-red-700 border-red-200'
+                  ? tc.passed
+                    ? 'bg-emerald-200 text-emerald-900 border-emerald-400'
+                    : 'bg-red-200 text-red-900 border-red-400'
+                  : tc.passed
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-red-50 text-red-700 border-red-200'
                   }`}
               >
                 <span className="material-symbols-outlined text-[12px]">
@@ -1049,8 +1115,8 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
                 {/* Result Summary Box */}
                 <div
                   className={`p-2.5 rounded border space-y-1 ${activeTestCase?.passed
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                      : 'bg-red-50 border-red-200 text-red-900'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                    : 'bg-red-50 border-red-200 text-red-900'
                     }`}
                 >
                   <div className="flex items-center justify-between text-[10px]">

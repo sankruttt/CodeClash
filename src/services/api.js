@@ -110,11 +110,21 @@ export const authAPI = {
 
 // ============== ROOM APIs ==============
 export const roomAPI = {
-  createRoom: (hostId, hostName, difficulty = 'Medium', timeLimit = '15:00') =>
-    apiRequest('/rooms/create', {
+  createRoom: (hostId, hostName, difficulty = 'Medium', timeLimit = '10:00', duration = 600) => {
+    let durSec = duration;
+    if (typeof durSec === 'number' && [5, 10, 15].includes(durSec)) durSec *= 60;
+    const normalizedTime = typeof timeLimit === 'number' ? `${timeLimit < 10 ? '0' : ''}${timeLimit}:00` : timeLimit;
+    return apiRequest('/rooms/create', {
       method: 'POST',
-      body: JSON.stringify({ hostId, hostName, difficulty, timeLimit }),
-    }),
+      body: JSON.stringify({
+        hostId,
+        hostName,
+        difficulty,
+        timeLimit: normalizedTime,
+        duration: durSec || (normalizedTime === '05:00' ? 300 : normalizedTime === '10:00' ? 600 : 900)
+      }),
+    });
+  },
 
   joinRoom: (roomCode, playerId, playerName) =>
     apiRequest('/rooms/join', {
@@ -137,10 +147,10 @@ export const roomAPI = {
       body: JSON.stringify({ userId }),
     }),
 
-  updateSettings: (code, { difficulty, timeLimit, duration }) =>
+  updateSettings: (code, { difficulty, timeLimit, duration, hostId }) =>
     apiRequest(`/rooms/${code}/settings`, {
       method: 'PUT',
-      body: JSON.stringify({ difficulty, timeLimit, duration }),
+      body: JSON.stringify({ difficulty, timeLimit, duration, hostId }),
     }),
 
   abandonRoom: (code, playerId) =>
@@ -221,8 +231,11 @@ export const problemAPI = {
   getProblemById: (id) =>
     apiRequest(`/problems/${id}`),
 
-  getRandomProblems: (count = 1) =>
-    apiRequest(`/problems/random?count=${count}`),
+  getRandomProblems: (count = 1, difficulty = '') => {
+    let url = `/problems/random?count=${count}`;
+    if (difficulty) url += `&difficulty=${encodeURIComponent(difficulty)}`;
+    return apiRequest(url);
+  },
 };
 
 // ============== LEADERBOARD & STATS APIs ==============

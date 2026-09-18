@@ -402,9 +402,14 @@ export default function App() {
   // Start match from Private Room
   const handleStartPrivateBattle = (roomConfig) => {
     let durationSeconds = roomConfig?.duration;
+    if (typeof durationSeconds === 'number' && [5, 10, 15].includes(durationSeconds)) {
+      durationSeconds *= 60;
+    }
     if (!durationSeconds && roomConfig?.timeLimit) {
-      const parts = roomConfig.timeLimit.split(':').map(Number);
-      durationSeconds = (parts[0] || 15) * 60 + (parts[1] || 0);
+      const parts = String(roomConfig.timeLimit).split(':').map(Number);
+      if (parts.length === 2 && !isNaN(parts[0])) {
+        durationSeconds = parts[0] * 60 + (parts[1] || 0);
+      }
     }
     if (![300, 600, 900].includes(durationSeconds)) {
       durationSeconds = 600;
