@@ -13,7 +13,11 @@ export const registerSchema = z.object({
   password: z.string()
     .min(6, 'Password must be at least 6 characters')
     .max(100, 'Password too long'),
-  avatar: z.string().max(10).optional()
+  avatar: z.string().max(10).optional(),
+  primaryStack: z.enum(['C', 'C++', 'Java', 'JavaScript', 'Python'], {
+    errorMap: () => ({ message: 'primaryStack must be one of: C, C++, Java, JavaScript, Python' })
+  }).default('Python'),
+  emailVerifiedToken: z.string().min(1, 'Email verification token is required').optional()
 });
 
 export const loginSchema = z.object({
@@ -37,6 +41,22 @@ export const updateProfileSchema = z.object({
 }).refine(data => data.name !== undefined || data.username !== undefined || data.primaryStack !== undefined, {
   message: 'At least one of name, username, or primaryStack must be provided'
 });
+
+// ============== OTP (EMAIL VERIFICATION) VALIDATORS ==============
+
+export const sendOtpSchema = z.object({
+  email: z.string()
+    .email('A valid email address is required')
+    .toLowerCase()
+}).passthrough();
+
+export const verifyOtpSchema = z.object({
+  email: z.string()
+    .email('A valid email address is required')
+    .toLowerCase(),
+  otp: z.string()
+    .regex(/^\d{6}$/, 'Verification code must be exactly 6 digits')
+}).passthrough();
 
 // ============== MATCH VALIDATORS ==============
 

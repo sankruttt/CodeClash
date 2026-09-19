@@ -1,6 +1,17 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+
+const NEW_USER_FLAG = 'codeclash_new_user';
 
 export default function WelcomeCard({ currentUser, rating, tierInfo, queueing, queueSeconds, onToggleQueue }) {
+  // Freshly-created accounts greet with "WELCOME" on their very first dashboard
+  // landing, then fall back to "WELCOME BACK" on every later visit.
+  const [isNewUser, setIsNewUser] = useState(() => sessionStorage.getItem(NEW_USER_FLAG) === '1');
+  useEffect(() => {
+    if (isNewUser) {
+      sessionStorage.removeItem(NEW_USER_FLAG);
+    }
+  }, [isNewUser]);
+
   const displayName = currentUser?.name || currentUser?.username || 'Combatant';
   const progressPct = Math.max(0, Math.min(100, tierInfo.tierPct || 0));
 
@@ -16,7 +27,8 @@ export default function WelcomeCard({ currentUser, rating, tierInfo, queueing, q
         {/* Left Info Block */}
         <div className="space-y-1.5 max-w-xl">
           <h1 className="text-xl font-bold tracking-tight text-slate-900">
-            WELCOME BACK, <span className="text-indigo-600 font-mono font-semibold">{displayName.toUpperCase()}</span>
+            {isNewUser ? 'WELCOME' : 'WELCOME BACK'},{' '}
+            <span className="text-indigo-600 font-mono font-semibold">{displayName.toUpperCase()}</span>
           </h1>
           {/* Progress to Next Tier */}
           <div className="pt-2 max-w-md">

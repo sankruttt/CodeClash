@@ -108,10 +108,28 @@ export const authAPI = {
       body: JSON.stringify({ email, password }),
     }),
 
-  register: ({ username, email, password, avatar }) =>
+  register: ({ username, email, password, avatar, primaryStack, emailVerifiedToken }) =>
     apiRequest('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ username, email, password, avatar }),
+      body: JSON.stringify({ username, email, password, avatar, primaryStack, emailVerifiedToken }),
+    }),
+
+  sendOtp: (email) =>
+    apiRequest('/auth/send-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+
+  resendOtp: (email) =>
+    apiRequest('/auth/resend-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+
+  verifyOtp: ({ email, otp }) =>
+    apiRequest('/auth/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email, otp }),
     }),
 
   getMe: () => apiRequest('/auth/me'),

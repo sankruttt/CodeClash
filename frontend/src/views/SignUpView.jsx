@@ -5,14 +5,23 @@ import { authAPI, setAuthToken } from '../services/api';
 const STITCH_LOGO_URL =
   'https://lh3.googleusercontent.com/aida/AEtjO1VkaA6KQmBEfQfLHrYIjjR4oGKWIHp1_CurDV8dkUOLfm1wboPXJDDOmiO5_Q53SFKmerv3V5dASxAes2QZ-yTXXenCF6yKwyLIXHfUUPl8D8tSTN5le0QvrjWh8S6juas_AMrCR3zcvP88ujMW1j8OexMQ66cxqVtd5iNHn2TfzJFyMz6Y7pPsl3P16O_L7a-ZoUxxhgm52M3B-owITbZTNWjcuONl60VhdeU7hfHLiuFQ31CuCvkvAkk';
 
+const STACK_OPTIONS = ['C', 'C++', 'Java', 'JavaScript', 'Python'];
+
 export default function SignUpView({ navigate, onSignUpSuccess }) {
   const [fullname, setFullname] = useState('');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [primaryStack, setPrimaryStack] = useState(STACK_OPTIONS[4]);
   const [showPassword, setShowPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+
+  // OTP (email verification) step state
+  const [step, setStep] = useState('form');
+  const [otp, setOtp] = useState('');
+  const [otpEmail, setOtpEmail] = useState('');
 
   const getInitials = (name) => {
     if (!name) return 'CC';
@@ -24,6 +33,27 @@ export default function SignUpView({ navigate, onSignUpSuccess }) {
       .toUpperCase() || 'CC';
   };
 
+  const handleSendOtp = async () => {
+    setErrorMessage('');
+    setIsSendingOtp(true);
+    try {
+      await authAPI.sendOtp(email.trim());
+      setOtpEmail(email.trim());
+      setOtp('');
+      setStep('otp');
+    } catch (err) {
+      if (err?.data?.error === 'SMTP_NOT_CONFIGURED') {
+        setErrorMessage('Email sending is not configured. Please contact the administrator.');
+      } else if (err?.data?.error === 'SMTP_SEND_FAILED') {
+        setErrorMessage('Could not deliver the verification email. Please check your SMTP settings and try again.');
+      } else {
+        setErrorMessage(err.message || 'Failed to send verification code. Try again.');
+      }
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage('');
@@ -33,18 +63,56 @@ export default function SignUpView({ navigate, onSignUpSuccess }) {
       return;
     }
 
-    setIsLoading(true);
+    await handleSendOtp();
+  };
 
-    const rawUsername = username.replace(/^@/, '').trim() || (email ? email.split('@')[0] : 'cadet');
-    const cleanUsername = rawUsername.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 25);
-    const avatar = (getInitials(fullname) || cleanUsername.slice(0, 2).toUpperCase()).slice(0, 3);
-
+  const handleResendOtp = async () => {
+    setErrorMessage('');
+    setIsSendingOtp(true);
     try {
+      await authAPI.resendOtp(otpEmail);
+      setOtp('');
+    } catch (err) {
+      if (err?.data?.error === 'RESEND_COOLDOWN') {
+        setErrorMessage('Please wait before requesting another code.');
+      } else if (err?.data?.error === 'SMTP_NOT_CONFIGURED') {
+        setErrorMessage('Email sending is not configured. Please contact the administrator.');
+      } else {
+        setErrorMessage(err.message || 'Failed to resend verification code. Try again.');
+      }
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
+  const handleVerifyAndRegister = async (e) => {
+    e.preventDefault();
+    setErrorMessage('');
+
+    if (!/^\d{6}$/.test(otp.trim())) {
+      setErrorMessage('Enter the 6-digit verification code.');
+      return;
+    }
+
+    setIsVerifying(true);
+    try {
+      const otpRes = await authAPI.verifyOtp({ email: otpEmail, otp: otp.trim() });
+      const emailVerifiedToken = otpRes?.data?.emailVerifiedToken;
+      if (!emailVerifiedToken) {
+        throw new Error('Verification succeeded but the verified-email token was missing.');
+      }
+
+      const rawUsername = username.replace(/^@/, '').trim() || (otpEmail ? otpEmail.split('@')[0] : 'cadet');
+      const cleanUsername = rawUsername.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 25);
+      const avatar = (getInitials(fullname) || cleanUsername.slice(0, 2).toUpperCase()).slice(0, 3);
+
       const res = await authAPI.register({
         username: cleanUsername,
-        email: email.trim(),
+        email: otpEmail,
         password,
         avatar,
+        primaryStack,
+        emailVerifiedToken,
       });
 
       if (res && res.data && res.data.token) {
@@ -55,8 +123,9 @@ export default function SignUpView({ navigate, onSignUpSuccess }) {
             token: res.data.token,
             name: fullname || res.data.user?.username || cleanUsername,
             handle: `@${cleanUsername}`,
-            email: email.trim(),
+            email: otpEmail,
             avatar,
+            primaryStack,
           });
         } else {
           navigate('dashboard');
@@ -65,9 +134,17 @@ export default function SignUpView({ navigate, onSignUpSuccess }) {
         throw new Error(res?.message || 'Registration failed. Please check your credentials.');
       }
     } catch (err) {
-      setErrorMessage(err.message || 'Registration failed. Check your information and try again.');
+      const errCode = err?.data?.error?.code || err?.data?.error;
+      if (errCode === 'EMAIL_VERIFICATION_REQUIRED' || errCode === 'EMAIL_VERIFICATION_INVALID') {
+        setErrorMessage('Your email verification has expired. Please request a new code.');
+        setStep('form');
+      } else if (errCode === 'INVALID_OTP') {
+        setErrorMessage(err.message || 'Incorrect verification code. Try again.');
+      } else {
+        setErrorMessage(err.message || 'Registration failed. Check your information and try again.');
+      }
     } finally {
-      setIsLoading(false);
+      setIsVerifying(false);
     }
   };
 
@@ -86,13 +163,6 @@ export default function SignUpView({ navigate, onSignUpSuccess }) {
           />
           <span className="font-mono font-bold tracking-wider text-slate-900 text-lg ml-2">
             CODE<span className="text-indigo-600">CLASH</span>
-          </span>
-        </div>
-
-        <div className="flex items-center">
-          <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-2 animate-pulse" />
-          <span className="font-mono text-xs uppercase tracking-widest text-slate-500">
-            GRID STATUS: <strong className="text-slate-700">1,248 ONLINE</strong>
           </span>
         </div>
       </header>
@@ -132,13 +202,15 @@ export default function SignUpView({ navigate, onSignUpSuccess }) {
         <section className="lg:col-span-6 xl:col-span-5 flex flex-col justify-center">
           <div className="w-full max-w-md mx-auto bg-white/90 backdrop-blur-xl border border-slate-200/80 rounded-2xl shadow-xl shadow-slate-200/50 p-8 sm:p-10">
             <div className="text-center font-mono text-xs uppercase tracking-widest text-indigo-600 font-semibold mb-2">
-              GET STARTED
+              {step === 'otp' ? 'EMAIL CONFIRMATION' : 'GET STARTED'}
             </div>
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 text-center mb-2">
-              Create your combatant account
+              {step === 'otp' ? 'Verify your combatant email' : 'Create your combatant account'}
             </h2>
             <p className="text-sm text-slate-500 text-center mb-6 leading-normal">
-              Reserve your handle globally and calibrate your battle environment.
+              {step === 'otp'
+                ? `A 6-digit code was sent to ${otpEmail}. Enter it to activate your account.`
+                : 'Reserve your handle globally and calibrate your battle environment.'}
             </p>
 
             <div className="flex border-b border-slate-200 mb-6 font-mono text-xs tracking-wider">
@@ -165,108 +237,201 @@ export default function SignUpView({ navigate, onSignUpSuccess }) {
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="block font-mono text-[11px] uppercase tracking-wider text-slate-600 font-semibold mb-1.5" htmlFor="fullname">
-                  Full Name or Alias
-                </label>
-                <input
-                  id="fullname"
-                  type="text"
-                  required
-                  value={fullname}
-                  onChange={(e) => setFullname(e.target.value)}
-                  placeholder="e.g. Cadet Alias"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 input-glow transition-all font-sans"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="flex justify-between items-center text-[11px] font-mono uppercase tracking-wider mb-1.5">
-                  <label className="text-slate-600 font-semibold" htmlFor="username">
-                    Battle Username / Callsign
+            {step === 'form' ? (
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="block font-mono text-[11px] uppercase tracking-wider text-slate-600 font-semibold mb-1.5" htmlFor="fullname">
+                    Full Name or Alias
                   </label>
-                  <span className="text-indigo-600 font-semibold text-[10px]">
-                    letters, numbers &amp; _
-                  </span>
-                </div>
-                <div className="relative flex items-center">
-                  <span className="absolute left-4 text-slate-400 font-mono text-sm select-none">@</span>
                   <input
-                    id="username"
+                    id="fullname"
                     type="text"
                     required
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value.replace(/^@/, ''))}
-                    placeholder="callsign"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 input-glow font-mono transition-all"
+                    value={fullname}
+                    onChange={(e) => setFullname(e.target.value)}
+                    placeholder="e.g. Cadet Alias"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 input-glow transition-all font-sans"
                   />
                 </div>
-              </div>
 
-              <div className="space-y-1.5">
-                <label className="block font-mono text-[11px] uppercase tracking-wider text-slate-600 font-semibold mb-1.5" htmlFor="signup-email">
-                  Email Address
-                </label>
-                <input
-                  id="signup-email"
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="alex@codeclash.dev"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 input-glow transition-all font-mono"
-                />
-              </div>
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center text-[11px] font-mono uppercase tracking-wider mb-1.5">
+                    <label className="text-slate-600 font-semibold" htmlFor="username">
+                      Battle Username / Callsign
+                    </label>
+                    <span className="text-indigo-600 font-semibold text-[10px]">
+                      letters, numbers &amp; _
+                    </span>
+                  </div>
+                  <div className="relative flex items-center">
+                    <span className="absolute left-4 text-slate-400 font-mono text-sm select-none">@</span>
+                    <input
+                      id="username"
+                      type="text"
+                      required
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value.replace(/^@/, ''))}
+                      placeholder="callsign"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 input-glow font-mono transition-all"
+                    />
+                  </div>
+                </div>
 
-              <div className="space-y-1.5">
-                <div className="flex justify-between items-center text-[11px] font-mono uppercase tracking-wider mb-1.5">
-                  <label className="text-slate-600 font-semibold" htmlFor="signup-password">
-                    Passkey / Password
+                <div className="space-y-1.5">
+                  <label className="block font-mono text-[11px] uppercase tracking-wider text-slate-600 font-semibold mb-1.5" htmlFor="signup-email">
+                    Email Address
                   </label>
-                  <span className="text-slate-400 font-mono text-[10px]">
-                    Min 6 characters
-                  </span>
-                </div>
-                <div className="relative flex items-center">
                   <input
-                    id="signup-password"
-                    type={showPassword ? 'text' : 'password'}
+                    id="signup-email"
+                    type="email"
                     required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Passw0rd123!"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 input-glow transition-all pr-10 font-mono"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="alex@codeclash.dev"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 input-glow transition-all font-mono"
                   />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center text-[11px] font-mono uppercase tracking-wider mb-1.5">
+                    <label className="text-slate-600 font-semibold" htmlFor="signup-password">
+                      Passkey / Password
+                    </label>
+                    <span className="text-slate-400 font-mono text-[10px]">
+                      Min 6 characters
+                    </span>
+                  </div>
+                  <div className="relative flex items-center">
+                    <input
+                      id="signup-password"
+                      type={showPassword ? 'text' : 'password'}
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Passw0rd123!"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 input-glow transition-all pr-10 font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      aria-label="Toggle password visibility"
+                      className="absolute right-3 text-slate-400 hover:text-slate-700 transition-colors p-1 cursor-pointer"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">
+                        {showPassword ? 'visibility_off' : 'visibility'}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center text-[11px] font-mono uppercase tracking-wider mb-1.5">
+                    <label className="text-slate-600 font-semibold" htmlFor="signup-stack">
+                      Primary Stack
+                    </label>
+                    <span className="text-indigo-600 font-semibold text-[10px]">
+                      duel language
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {STACK_OPTIONS.map((stack) => (
+                      <button
+                        key={stack}
+                        type="button"
+                        onClick={() => setPrimaryStack(stack)}
+                        aria-pressed={primaryStack === stack}
+                        className={`px-3 py-2 rounded-lg font-mono text-xs font-semibold border transition-all cursor-pointer ${
+                          primaryStack === stack
+                            ? 'bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-500/20'
+                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-600'
+                        }`}
+                      >
+                        {stack}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="pt-3">
                   <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    aria-label="Toggle password visibility"
-                    className="absolute right-3 text-slate-400 hover:text-slate-700 transition-colors p-1 cursor-pointer"
+                    type="submit"
+                    disabled={isSendingOtp}
+                    className={`w-full py-3.5 px-4 font-mono font-semibold text-xs tracking-wider uppercase rounded-lg shadow-md flex items-center justify-center gap-2 group transition-all ${isSendingOtp
+                      ? 'bg-indigo-400 text-white cursor-not-allowed'
+                      : 'bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white shadow-indigo-500/20 cursor-pointer'
+                      }`}
                   >
-                    <span className="material-symbols-outlined text-[18px]">
-                      {showPassword ? 'visibility_off' : 'visibility'}
+                    <span>{isSendingOtp ? 'SENDING VERIFICATION CODE...' : 'Initialize Combatant & Enter'}</span>
+                    <span className="text-base leading-none transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5">
+                      ↗
                     </span>
                   </button>
                 </div>
-              </div>
+              </form>
+            ) : (
+              <form onSubmit={handleVerifyAndRegister} className="space-y-4">
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center text-[11px] font-mono uppercase tracking-wider mb-1.5">
+                    <label className="text-slate-600 font-semibold" htmlFor="otp-code">
+                      Verification Code
+                    </label>
+                    <span className="text-slate-400 font-mono text-[10px]">
+                      expires in 5 min
+                    </span>
+                  </div>
+                  <input
+                    id="otp-code"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    required
+                    maxLength={6}
+                    value={otp}
+                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+                    placeholder="••••••"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-center text-2xl tracking-[0.5em] text-slate-900 placeholder:text-slate-300 input-glow transition-all font-mono"
+                  />
+                </div>
 
-              <div className="pt-3">
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className={`w-full py-3.5 px-4 font-mono font-semibold text-xs tracking-wider uppercase rounded-lg shadow-md flex items-center justify-center gap-2 group transition-all ${isLoading
-                    ? 'bg-indigo-400 text-white cursor-not-allowed'
-                    : 'bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white shadow-indigo-500/20 cursor-pointer'
-                    }`}
-                >
-                  <span>{isLoading ? 'INITIALIZING COMBATANT...' : 'Initialize Combatant & Enter'}</span>
-                  <span className="text-base leading-none transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5">
-                    ↗
+                <div className="flex items-center justify-between font-mono text-xs text-slate-500">
+                  <span>
+                    Sent to <strong className="text-indigo-600">{otpEmail}</strong>
                   </span>
-                </button>
-              </div>
-            </form>
+                  <button
+                    type="button"
+                    onClick={() => { setStep('form'); setErrorMessage(''); }}
+                    className="text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer"
+                  >
+                    Change email
+                  </button>
+                </div>
+
+                <div className="pt-3">
+                  <button
+                    type="submit"
+                    disabled={isVerifying}
+                    className={`w-full py-3.5 px-4 font-mono font-semibold text-xs tracking-wider uppercase rounded-lg shadow-md flex items-center justify-center gap-2 transition-all ${isVerifying
+                      ? 'bg-indigo-400 text-white cursor-not-allowed'
+                      : 'bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white shadow-indigo-500/20 cursor-pointer'
+                      }`}
+                  >
+                    <span>{isVerifying ? 'VERIFYING & ACTIVATING...' : 'Verify & Activate Combatant'}</span>
+                    <span className="text-base leading-none">↗</span>
+                  </button>
+                </div>
+
+                <div className="pt-1 text-center">
+                  <button
+                    type="button"
+                    onClick={handleResendOtp}
+                    disabled={isSendingOtp}
+                    className="font-mono text-xs text-indigo-600 hover:text-indigo-700 font-semibold underline underline-offset-4 disabled:text-slate-400 disabled:no-underline disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    {isSendingOtp ? 'Resending...' : "Didn't get the code? Resend"}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </section>
       </main>

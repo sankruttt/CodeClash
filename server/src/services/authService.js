@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import PlayerStatistics from '../models/PlayerStatistics.js';
+import { assertEmailVerified } from './otpService.js';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
@@ -20,8 +21,15 @@ function generateToken(user) {
   );
 }
 
-export async function registerUser({ username, email, password, avatar }) {
-  // Check if user already exists
+export async function registerUser({ username, email, password, avatar, primaryStack, emailVerifiedToken }) {
+  // The combatant's email must have been verified server-side first. The
+  // only way to get this token is a successful OTP verify (single-use,
+  // purpose-scoped, short-TTL) — register refuses to mint an account on a
+  // guess.
+  assertEmailVerified({ email, emailVerifiedToken });
+
+  // Check if user already exists (account creation is the final gate, so an
+  // email can only ever become ONE account even if the OTP flow was replayed).
   const existing = await User.findOne({
     $or: [{ email }, { username }]
   });
@@ -38,7 +46,8 @@ export async function registerUser({ username, email, password, avatar }) {
     username,
     email,
     password,
-    avatar: avatar || username.slice(0, 2).toUpperCase()
+    avatar: avatar || username.slice(0, 2).toUpperCase(),
+    primaryStack: primaryStack || 'Python'
   });
 
   try {

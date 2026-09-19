@@ -574,6 +574,9 @@ export default function App() {
 
   const handleSignUpSuccess = ({ user, token, name, handle, email, avatar }) => {
     if (token) setAuthToken(token);
+    // Brand-new combatants get "WELCOME" (not "WELCOME BACK") on their very
+    // first dashboard landing — WelcomeCard reads this once and clears it.
+    sessionStorage.setItem('codeclash_new_user', '1');
     const u = user || {};
     const tierDetails = getTierDetails(u.rating || SCORING.defaultRating, u.tier);
     const combatant = {

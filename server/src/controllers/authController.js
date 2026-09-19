@@ -1,11 +1,12 @@
 import { registerUser, loginUser, getUserById, updateUserProfile } from '../services/authService.js';
 import { getUserStreak } from '../services/streakService.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
+import { sendOtp, resendOtp, verifyOtp } from '../services/otpService.js';
 
 export const register = asyncHandler(async (req, res) => {
-  const { username, email, password, avatar } = req.body;
+  const { username, email, password, avatar, primaryStack, emailVerifiedToken } = req.body;
 
-  const result = await registerUser({ username, email, password, avatar });
+  const result = await registerUser({ username, email, password, avatar, primaryStack, emailVerifiedToken });
 
   res.status(201).json({
     success: true,
@@ -94,4 +95,38 @@ export const getStreak = asyncHandler(async (req, res) => {
   });
 });
 
-export default { register, login, getProfile, updateProfile, getStreak };
+
+export const sendOtpHandler = asyncHandler(async (req, res) => {
+  const { email, username } = req.body;
+  const data = await sendOtp({ email, username });
+
+  res.status(200).json({
+    success: true,
+    message: 'Verification code sent',
+    data
+  });
+});
+
+export const resendOtpHandler = asyncHandler(async (req, res) => {
+  const { email, username } = req.body;
+  const data = await resendOtp({ email, username });
+
+  res.status(200).json({
+    success: true,
+    message: 'Verification code sent',
+    data
+  });
+});
+
+export const verifyOtpHandler = asyncHandler(async (req, res) => {
+  const { email, otp } = req.body;
+  const data = await verifyOtp({ email, otp });
+
+  res.status(200).json({
+    success: true,
+    message: 'Email verified',
+    data
+  });
+});
+
+export default { sendOtpHandler, resendOtpHandler, verifyOtpHandler, register, login, getProfile, updateProfile, getStreak };
