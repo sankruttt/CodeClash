@@ -219,6 +219,11 @@ export const matchAPI = {
       body: JSON.stringify({ playerId, questionIndex, time }),
     }),
 
+  startBattle: (matchId) =>
+    apiRequest(`/matches/${matchId}/start`, {
+      method: 'POST',
+    }),
+
   completeMatch: (matchId, winner, scores) =>
     apiRequest(`/matches/${matchId}/complete`, {
       method: 'POST',

@@ -76,6 +76,7 @@ export default function App() {
   const [matchCompleteVisible, setMatchCompleteVisible] = useState(false);
   const [pendingNavigationRoute, setPendingNavigationRoute] = useState(null);
   const [forfeitNotice, setForfeitNotice] = useState(null);
+  const [leaderboardSearchPrefill, setLeaderboardSearchPrefill] = useState('');
 
   const isMatchInProgress = useCallback((matchObj) => {
     if (!matchObj) return false;
@@ -292,7 +293,8 @@ export default function App() {
     }
   }, [route, refreshUser]);
 
-  // Queue simulation with real backend problem selection
+  // Queue for 1v1 matchmaking: join the server queue, poll for a real opponent,
+  // and fall back to a simulated bot duel if no human joins within the timeout.
   const handleToggleQueue = async (cfg = {}) => {
     if (queueing) {
       setQueueing(false);
@@ -304,77 +306,135 @@ export default function App() {
     } else {
       const qCount = [1, 2, 3].includes(Number(cfg?.questionCount)) ? Number(cfg.questionCount) : 1;
       const dur = [5, 10, 15].includes(Number(cfg?.duration)) ? Number(cfg.duration) : 10;
-      const nextConfig = { questionCount: qCount, duration: dur };
-      setQueueConfig(nextConfig);
+      setQueueConfig({ questionCount: qCount, duration: dur });
       setQueueing(true);
-      try {
-        await matchmakingAPI.joinQueue(nextConfig);
-      } catch (err) {
-        console.warn('Failed to join matchmaking queue:', err.message);
-      }
     }
   };
 
   useEffect(() => {
     if (!queueing) return;
-    let isCancelled = false;
 
-    const timer = setTimeout(async () => {
+    const meId = currentUser?.id;
+    const POLL_MS = 1200;
+    const BOT_FALLBACK_MS = 20000;
+
+    let isCancelled = false;
+    let pollTimer = null;
+    let fallbackTimer = null;
+
+    const stopQueue = () => {
+      setQueueing(false);
+      matchmakingAPI.leaveQueue().catch(() => null);
+    };
+
+    // Real opponent found server-side (match created in MongoDB by findMatch).
+    const showServerMatch = async (m) => {
+      if (isCancelled) return;
+      const populated = await matchAPI.getMatch(String(m._id || m.id)).catch(() => null);
+      if (isCancelled) return;
+      const server = populated?.data?.match || populated?.match || m;
+      const problems = Array.isArray(server?.problems) ? server.problems : [];
+      const opponent = (Array.isArray(server.players) ? server.players : []).find(
+        (p) => p.userId && meId && String(p.userId) !== String(meId)
+      );
+      stopQueue();
+      setMatchFoundModal({
+        countdown: 3,
+        type: '1v1 Ranked Duel',
+        serverMatch: server,
+        opponent: opponent?.username || 'Opponent',
+        opponentRating: opponent && opponent.ratingBefore != null ? opponent.ratingBefore : SCORING.defaultRating,
+        opponentAvatar: opponent?.avatar || 'OP',
+        problem: problems[0]?.title || 'Algorithmic Duel',
+        problems,
+        questionCount: server.questionCount || problems.length || 1,
+        duration: server.duration || 600,
+        timeLimit: server.timeLimit || null,
+        startedAt: server.startedAt || null,
+      });
+    };
+
+    // No human opponent within the window — simulate a bot duel (existing behavior).
+    const showBotMatch = async () => {
+      if (isCancelled) return;
+      const qCount = queueConfig?.questionCount || 1;
+      const durMinutes = queueConfig?.duration || 10;
+      const durSeconds = durMinutes * 60;
+      let probTitle = 'Algorithmic Duel';
+      let problems = [];
+      let primaryProblem = null;
       try {
-        const qCount = queueConfig?.questionCount || 1;
-        const durMinutes = queueConfig?.duration || 10;
-        const durSeconds = durMinutes * 60;
         const probRes = await problemAPI.getRandomProblems(qCount);
-        const problems = Array.isArray(probRes?.data?.problems)
+        problems = Array.isArray(probRes?.data?.problems)
           ? probRes.data.problems
           : Array.isArray(probRes?.data)
           ? probRes.data
           : probRes?.data?.problem
           ? [probRes.data.problem]
           : [];
-        const primaryProblem = problems[0] || null;
-        const probTitle = primaryProblem?.title || 'Algorithmic Duel';
-
-        if (!isCancelled) {
-          setQueueing(false);
-          matchmakingAPI.leaveQueue().catch(() => null);
-          setMatchFoundModal({
-            opponent: 'v0_Sniper',
-            opponentRating: SCORING.simulated.ranked,
-            opponentAvatar: 'VS',
-            type: '1v1 Ranked Duel',
-            problem: probTitle,
-            problemData: primaryProblem,
-            problems: problems,
-            questionCount: qCount,
-            duration: durSeconds,
-            countdown: 3,
-          });
-        }
+        primaryProblem = problems[0] || null;
+        probTitle = primaryProblem?.title || 'Algorithmic Duel';
       } catch (err) {
-        if (!isCancelled) {
-          setQueueing(false);
-          matchmakingAPI.leaveQueue().catch(() => null);
-          setMatchFoundModal({
-            opponent: 'v0_Sniper',
-            opponentRating: SCORING.simulated.ranked,
-            opponentAvatar: 'VS',
-            type: '1v1 Ranked Duel',
-            problem: 'Binary Search',
-            problems: [],
-            questionCount: queueConfig?.questionCount || 1,
-            duration: (queueConfig?.duration || 10) * 60,
-            countdown: 3,
-          });
-        }
+        console.warn('Bot fallback problem fetch notice:', err?.message || err);
       }
-    }, 2800);
+      if (isCancelled) return;
+      stopQueue();
+      setMatchFoundModal({
+        opponent: 'v0_Sniper',
+        opponentRating: SCORING.simulated.ranked,
+        opponentAvatar: 'VS',
+        type: '1v1 Ranked Duel',
+        problem: probTitle,
+        problemData: primaryProblem,
+        problems,
+        questionCount: qCount,
+        duration: durSeconds,
+        countdown: 3,
+      });
+    };
+
+    const consumeMatched = (data) => {
+      const d = data?.data?.data || data?.data || data;
+      const matchStatus = d?.matchStatus || d?.status;
+      if (matchStatus === 'matched' && d?.match) {
+        clearTimeout(fallbackTimer);
+        showServerMatch(d.match);
+        return true;
+      }
+      return false;
+    };
+
+    fallbackTimer = setTimeout(() => showBotMatch(), BOT_FALLBACK_MS);
+
+    (async () => {
+      try {
+        const res = await matchmakingAPI.joinQueue(queueConfig);
+        if (isCancelled) return;
+        if (consumeMatched(res)) return;
+      } catch (err) {
+        console.warn('Matchmaking join notice:', err?.message || err);
+      }
+      if (isCancelled) return;
+
+      const poll = async () => {
+        if (isCancelled) return;
+        try {
+          const s = await matchmakingAPI.getStatus();
+          if (consumeMatched(s)) return;
+        } catch {
+          // transient — keep polling
+        }
+        pollTimer = setTimeout(poll, POLL_MS);
+      };
+      pollTimer = setTimeout(poll, POLL_MS);
+    })();
 
     return () => {
       isCancelled = true;
-      clearTimeout(timer);
+      if (fallbackTimer) clearTimeout(fallbackTimer);
+      if (pollTimer) clearTimeout(pollTimer);
     };
-  }, [queueing, queueConfig]);
+  }, [queueing, queueConfig, currentUser?.id]);
 
   // Match Found countdown sequence (3 -> 2 -> 1 -> Arena)
   useEffect(() => {
@@ -390,57 +450,101 @@ export default function App() {
     } else {
       const cd = setTimeout(async () => {
         let createdMatchId = null;
-        const generatedRoomCode = 'RK-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-        const durationSec = matchFoundModal.duration || 600;
-        const qCount = matchFoundModal.questionCount || matchFoundModal.problems?.length || 1;
-        const problemList = matchFoundModal.problems && matchFoundModal.problems.length > 0
-          ? matchFoundModal.problems
-          : (matchFoundModal.problemData ? [matchFoundModal.problemData] : []);
-        const questionIds = problemList.map((p) => p._id || p);
+        let match = null;
 
-        try {
-          const createRes = await matchAPI.createMatch({
-            roomCode: generatedRoomCode,
-            type: 'ranked',
-            duration: durationSec,
-            questionCount: qCount,
-            timeLimit: `${Math.floor(durationSec / 60) < 10 ? '0' : ''}${Math.floor(durationSec / 60)}:00`,
-            player1: {
-              userId: currentUser?.id,
-              username: currentUser?.name || currentUser?.username || 'You',
-              ratingBefore: currentUser?.rating || SCORING.defaultRating,
-            },
-            player2: {
-              userId: null,
-              username: matchFoundModal.opponent || 'v0_Sniper',
-              ratingBefore: matchFoundModal.opponentRating || SCORING.simulated.ranked,
-            },
-            questions: questionIds,
-          });
-          const m = createRes?.data?.match || createRes?.match;
-          if (m?._id) {
-            createdMatchId = m._id.toString();
+        if (matchFoundModal.serverMatch) {
+          // REAL server-created 1v1 match — the Match document already exists in
+          // MongoDB with both real players. Activate it and enter the arena with it.
+          const sm = matchFoundModal.serverMatch;
+          const smPlayers = Array.isArray(sm.players) ? sm.players : [];
+          const meId = currentUser?.id;
+          const opponent = smPlayers.find(
+            (p) => p.userId && meId && String(p.userId) !== String(meId)
+          );
+          const durationSec = sm.duration || matchFoundModal.duration || 600;
+          const qCount = sm.questionCount || matchFoundModal.questionCount || 1;
+          const problemList = Array.isArray(matchFoundModal.problems) ? matchFoundModal.problems : [];
+
+          createdMatchId = sm._id ? String(sm._id) : sm.id ? String(sm.id) : null;
+          if (createdMatchId) {
+            // Sets status ACTIVE + startedAt server-side; idempotent across both players.
+            matchAPI.startBattle(createdMatchId).catch(() => null);
           }
-        } catch (err) {
-          console.warn('Backend match creation notice:', err.message);
+
+          match = {
+            id: createdMatchId || sm.roomCode,
+            matchId: createdMatchId,
+            roomCode: sm.roomCode,
+            type: '1v1 Ranked Duel',
+            isRanked: true,
+            opponent: opponent?.username || matchFoundModal.opponent || 'Opponent',
+            opponentRating: opponent && opponent.ratingBefore != null
+              ? opponent.ratingBefore
+              : matchFoundModal.opponentRating || SCORING.defaultRating,
+            opponentAvatar: opponent?.avatar || matchFoundModal.opponentAvatar || 'OP',
+            problem: problemList[0]?.title || matchFoundModal.problem || 'Algorithmic Duel',
+            problemData: problemList[0] || null,
+            problems: problemList,
+            questionCount: qCount,
+            duration: durationSec,
+            timeLimit: sm.timeLimit || matchFoundModal.timeLimit || null,
+            startedAt: sm.startedAt ? new Date(sm.startedAt).toISOString() : new Date().toISOString(),
+          };
+        } else {
+          // Simulated bot duel (existing fallback flow)
+          const generatedRoomCode = 'RK-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+          const durationSec = matchFoundModal.duration || 600;
+          const qCount = matchFoundModal.questionCount || matchFoundModal.problems?.length || 1;
+          const problemList = matchFoundModal.problems && matchFoundModal.problems.length > 0
+            ? matchFoundModal.problems
+            : (matchFoundModal.problemData ? [matchFoundModal.problemData] : []);
+          const questionIds = problemList.map((p) => p._id || p);
+
+          try {
+            const createRes = await matchAPI.createMatch({
+              roomCode: generatedRoomCode,
+              type: 'ranked',
+              duration: durationSec,
+              questionCount: qCount,
+              timeLimit: `${Math.floor(durationSec / 60) < 10 ? '0' : ''}${Math.floor(durationSec / 60)}:00`,
+              player1: {
+                userId: currentUser?.id,
+                username: currentUser?.name || currentUser?.username || 'You',
+                ratingBefore: currentUser?.rating || SCORING.defaultRating,
+              },
+              player2: {
+                userId: null,
+                username: matchFoundModal.opponent || 'v0_Sniper',
+                ratingBefore: matchFoundModal.opponentRating || SCORING.simulated.ranked,
+              },
+              questions: questionIds,
+            });
+            const m = createRes?.data?.match || createRes?.match;
+            if (m?._id) {
+              createdMatchId = m._id.toString();
+            }
+          } catch (err) {
+            console.warn('Backend match creation notice:', err.message);
+          }
+
+          match = {
+            id: createdMatchId || generatedRoomCode,
+            matchId: createdMatchId,
+            roomCode: generatedRoomCode,
+            type: matchFoundModal.type || '1v1 Ranked Duel',
+            isRanked: true,
+            opponent: matchFoundModal.opponent,
+            opponentRating: matchFoundModal.opponentRating || SCORING.simulated.ranked,
+            opponentAvatar: matchFoundModal.opponentAvatar || 'VS',
+            problem: problemList[0]?.title || matchFoundModal.problem,
+            problemData: problemList[0] || matchFoundModal.problemData,
+            problems: problemList,
+            questionCount: qCount,
+            duration: durationSec,
+            startedAt: new Date().toISOString(),
+          };
         }
 
-        const match = {
-          id: createdMatchId || generatedRoomCode,
-          matchId: createdMatchId,
-          roomCode: generatedRoomCode,
-          type: matchFoundModal.type || '1v1 Ranked Duel',
-          isRanked: true,
-          opponent: matchFoundModal.opponent,
-          opponentRating: matchFoundModal.opponentRating || SCORING.simulated.ranked,
-          opponentAvatar: matchFoundModal.opponentAvatar || 'VS',
-          problem: problemList[0]?.title || matchFoundModal.problem,
-          problemData: problemList[0] || matchFoundModal.problemData,
-          problems: problemList,
-          questionCount: qCount,
-          duration: durationSec,
-          startedAt: new Date().toISOString(),
-        };
         sessionStorage.setItem('codeclash_active_match', JSON.stringify(match));
         setActiveMatch(match);
         setMatchFoundModal(null);
@@ -647,6 +751,7 @@ export default function App() {
         navigate={navigate}
         currentUser={currentUser}
         onLogout={handleLogout}
+        onUserSearch={setLeaderboardSearchPrefill}
       />
 
       {/* Main View Router */}
@@ -695,6 +800,7 @@ export default function App() {
           <LeaderboardView
             currentUser={currentUser}
             onUserRefreshed={refreshUser}
+            prefillSearch={leaderboardSearchPrefill}
           />
         )}
 

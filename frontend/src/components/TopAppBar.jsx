@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import logoImg from '../assets/codeclash-logo.png';
 import { SCORING } from '../config/scoring';
+import { leaderboardAPI } from '../services/api';
 
 const STITCH_LOGO_URL =
   'https://lh3.googleusercontent.com/aida/AEtjO1VkaA6KQmBEfQfLHrYIjjR4oGKWIHp1_CurDV8dkUOLfm1wboPXJDDOmiO5_Q53SFKmerv3V5dASxAes2QZ-yTXXenCF6yKwyLIXHfUUPl8D8tSTN5le0QvrjWh8S6juas_AMrCR3zcvP88ujMW1j8OexMQ66cxqVtd5iNHn2TfzJFyMz6Y7pPsl3P16O_L7a-ZoUxxhgm52M3B-owITbZTNWjcuONl60VhdeU7hfHLiuFQ31CuCvkvAkk';
@@ -10,10 +11,15 @@ export default function TopAppBar({
   navigate,
   currentUser,
   onLogout,
+  onUserSearch,
 }) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const searchRef = useRef(null);
+  const searchBoxRef = useRef(null);
 
   // Cmd/Ctrl+K focuses the global search
   useEffect(() => {
@@ -27,21 +33,58 @@ export default function TopAppBar({
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
+  // Live backend user search (debounced)
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setSearchResults([]);
+      setDropdownOpen(false);
+      return;
+    }
+    setSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await leaderboardAPI.getLeaderboard({ page: 1, limit: 6, search: q });
+        setSearchResults(res?.data?.leaderboard || []);
+        setDropdownOpen(true);
+      } catch {
+        setSearchResults([]);
+        setDropdownOpen(false);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Close the dropdown when clicking outside the search box
+  useEffect(() => {
+    const handler = (e) => {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const applySearch = (raw) => {
+    const q = String(raw || '').trim();
+    if (!q) return;
+    setSearchQuery(q);
+    setSearchResults([]);
+    setDropdownOpen(false);
+    if (onUserSearch) onUserSearch(q);
+    navigate('leaderboard');
+  };
+
   const handleSearch = (e) => {
     e.preventDefault();
-    if (!searchQuery.trim()) return;
-    const q = searchQuery.toLowerCase().trim();
-    if (q.includes('rank') || q.includes('ladder') || q.includes('board') || q.includes('top') || q.includes('apex') || q.includes('master') || q.includes('diamond')) {
-      navigate('leaderboard');
-    } else if (q.includes('match') || q.includes('history') || q.includes('recent') || q.includes('duel') || q.includes('past')) {
-      navigate('history');
-    } else if (q.includes('lobby') || q.includes('queue') || q.includes('room') || q.includes('scrimmage')) {
-      navigate('lobby');
-    } else if (q.includes('profile') || q.includes('stat') || q.includes('xp') || q.includes('lp') || q.includes('tier')) {
-      navigate('profile');
-    } else {
-      navigate('leaderboard');
-    }
+    applySearch(searchQuery);
+  };
+
+  const handleResultSelect = (user) => {
+    applySearch(user?.username || user?.name);
   };
 
   const getBreadcrumb = () => {
@@ -96,20 +139,66 @@ export default function TopAppBar({
 
       {/* Center Search */}
       <div className="flex-1 max-w-md mx-6 hidden md:block">
-        <form onSubmit={handleSearch} className="relative flex items-center">
-          <span className="material-symbols-outlined absolute left-3 text-slate-400 text-base pointer-events-none">
-            search
-          </span>
-          <input
-            ref={searchRef}
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search algorithms, matches, adversaries..."
-            className="w-full bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-800 text-xs pl-9 pr-14 py-1.5 rounded-lg focus:outline-none focus:border-indigo-500 focus:bg-white transition-colors placeholder:text-slate-400 font-sans shadow-sm"
-          />
-          <kbd className="absolute right-2 font-mono text-[10px] px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-500 font-medium shadow-xs">⌘K</kbd>
-        </form>
+        <div ref={searchBoxRef} className="relative">
+          <form onSubmit={handleSearch} className="relative flex items-center">
+            <span className="material-symbols-outlined absolute left-3 text-slate-400 text-base pointer-events-none">
+              search
+            </span>
+            <input
+              ref={searchRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search combatants by name or @handle..."
+              className="w-full bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-800 text-xs pl-9 pr-14 py-1.5 rounded-lg focus:outline-none focus:border-indigo-500 focus:bg-white transition-colors placeholder:text-slate-400 font-sans shadow-sm"
+            />
+            <kbd className="absolute right-2 font-mono text-[10px] px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-500 font-medium shadow-xs">⌘K</kbd>
+          </form>
+
+          {/* Live User Search Results Dropdown */}
+          {dropdownOpen && (searching || searchResults.length > 0) && (
+            <div className="absolute top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden">
+              {searching ? (
+                <div className="px-3 py-3 text-center text-xs text-slate-400 font-mono">Searching combatants...</div>
+              ) : (
+                <ul className="max-h-72 overflow-y-auto divide-y divide-slate-100">
+                  {searchResults.map((u) => (
+                    <li key={u.userId || u.id}>
+                      <button
+                        type="button"
+                        onClick={() => handleResultSelect(u)}
+                        className="w-full text-left px-3 py-2.5 flex items-center gap-2.5 hover:bg-indigo-50/60 transition-colors cursor-pointer"
+                      >
+                        <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-indigo-500 to-sky-400 text-white font-mono font-bold text-[10px] flex items-center justify-center shrink-0">
+                          {u.avatar || (u.username ? u.username.slice(0, 2).toUpperCase() : 'CC')}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-semibold text-slate-900 truncate">
+                            {u.name || u.username}
+                          </div>
+                          <div className="text-[10px] font-mono text-slate-400 truncate">@{u.username}</div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="text-[10px] font-mono text-indigo-600 font-bold">
+                            {(u.rating || SCORING.defaultRating).toLocaleString()} LP
+                          </div>
+                          <div className="text-[9px] font-mono text-slate-400">
+                            {u.wins || 0}W • {u.losses || 0}L
+                          </div>
+                        </div>
+                      </button>
+                    </li>
+                  ))}
+                  {searchResults.length === 0 && (
+                    <li className="px-3 py-3 text-center text-xs text-slate-400 font-mono">
+                      No combatants found.
+                    </li>
+                  )}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* User Stats & Actions */}

@@ -5,7 +5,7 @@ import { SCORING } from '../config/scoring';
 
 const SUPPORTED_STACKS = ['All Stacks', 'C', 'C++', 'Java', 'JavaScript', 'Python'];
 
-export default function LeaderboardView({ currentUser, onUserRefreshed }) {
+export default function LeaderboardView({ currentUser, onUserRefreshed, prefillSearch = '' }) {
   const [stackFilter, setStackFilter] = useState('All Stacks');
   const [searchQuery, setSearchQuery] = useState('');
   const [leaderboard, setLeaderboard] = useState([]);
@@ -24,6 +24,14 @@ export default function LeaderboardView({ currentUser, onUserRefreshed }) {
   const [apiError, setApiError] = useState(null);
 
   const requestSeq = useRef(0);
+
+  // Sync external search intent (from the top-bar global search) into this view.
+  // The debounced fetch effect below reacts to searchQuery changes.
+  useEffect(() => {
+    if (prefillSearch && prefillSearch.trim() !== searchQuery) {
+      setSearchQuery(prefillSearch.trim());
+    }
+  }, [prefillSearch, searchQuery]);
 
   const fetchPage = async (targetPage = 1, stack = stackFilter, search = searchQuery) => {
     const seq = ++requestSeq.current;
@@ -118,19 +126,7 @@ export default function LeaderboardView({ currentUser, onUserRefreshed }) {
     };
   });
 
-  const filteredLadder = mappedLadder.filter((item) => {
-    if (
-      searchQuery &&
-      !item.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
-      !item.username?.toLowerCase()?.includes(searchQuery.toLowerCase())
-    ) {
-      return false;
-    }
-    if (stackFilter !== 'All Stacks' && item.stack !== stackFilter) {
-      return false;
-    }
-    return true;
-  });
+  const filteredLadder = mappedLadder;
 
   const mapTopItem = (item, defaultMatrix) => {
     if (!item) return null;
@@ -174,7 +170,7 @@ export default function LeaderboardView({ currentUser, onUserRefreshed }) {
               Global Leaderboard
             </h1>
             <p className="text-xs text-slate-500 max-w-2xl leading-relaxed mt-1 font-sans">
-              Real-time deterministic ratings across competitive clusters. Powered by live MongoDB telemetry.
+                See where you stand, track your progress, and compete with others as you climb the ranks.
             </p>
           </div>
           {pagination.total > 0 && (

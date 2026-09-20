@@ -49,8 +49,10 @@ export const getMatchmakingStatus = asyncHandler(async (req, res) => {
     data: {
       inQueue: status.inQueue,
       position: status.position,
-      queueLength: status.queueLength,
+      queueLength: status.queueLength || null,
       estimatedWait: status.estimatedWait,
+      matchStatus: status.status || (status.inQueue ? 'searching' : 'idle'),
+      match: status.match || null,
       status
     }
   });
