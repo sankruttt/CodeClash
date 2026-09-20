@@ -11,6 +11,7 @@ import {
 } from '../services/matchService.js';
 import { updatePlayerStatsAfterMatch, addMatchHistory } from '../services/scoringService.js';
 import { recordUserActivity } from '../services/streakService.js';
+import { finalizeBounty } from '../services/bountyService.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 
 export const createMatch = asyncHandler(async (req, res) => {
@@ -173,6 +174,17 @@ export const startBattle = asyncHandler(async (req, res) => {
 
 export const completeBattle = asyncHandler(async (req, res) => {
   const { id } = req.params;
+  const match = await Match.findById(id);
+  if (match && match.type === 'bounty') {
+    const settled = await finalizeBounty(id, req.user?.id || req.query?.playerId);
+    return res.json({
+      success: true,
+      message: 'Bounty settled',
+      match: settled?.match,
+      data: { match: settled?.match }
+    });
+  }
+
   const completedMatch = await completeMatch(id);
 
   res.json({
@@ -189,13 +201,25 @@ export const abandonBattle = asyncHandler(async (req, res) => {
   const problemTitle = req.body?.problemTitle;
   const difficulty = req.body?.difficulty;
 
-  const match = await abandonMatch(id, userId, { problemTitle, difficulty });
+  const match = await Match.findById(id);
+  // Bounty abandonment settles at 0 LP — no ranked penalty, no adversary reward.
+  if (match && match.type === 'bounty') {
+    const settled = await finalizeBounty(id, userId);
+    return res.json({
+      success: true,
+      message: 'Bounty abandoned — no LP awarded',
+      match: settled?.match,
+      data: { match: settled?.match }
+    });
+  }
+
+  const abandonedMatch = await abandonMatch(id, userId, { problemTitle, difficulty });
 
   res.json({
     success: true,
     message: 'Match abandoned',
-    match,
-    data: { match }
+    match: abandonedMatch,
+    data: { match: abandonedMatch }
   });
 });
 

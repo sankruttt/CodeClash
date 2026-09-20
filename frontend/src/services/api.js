@@ -339,6 +339,18 @@ export const compilerAPI = {
     apiRequest(`/submissions/match/${matchId}${playerId ? `?playerId=${playerId}` : ''}`),
 };
 
+// ============== DAILY BOUNTY APIs ==============
+export const bountyAPI = {
+  getStatus: () =>
+    apiRequest('/bounty'),
+
+  startBounty: () =>
+    apiRequest('/bounty/start', { method: 'POST' }),
+
+  completeBounty: (matchId) =>
+    apiRequest(`/bounty/${matchId}/complete`, { method: 'POST' }),
+};
+
 export default {
   authAPI,
   roomAPI,
@@ -348,6 +360,7 @@ export default {
   leaderboardAPI,
   playerAPI,
   compilerAPI,
+  bountyAPI,
   getAuthToken,
   setAuthToken,
   clearAuthToken,

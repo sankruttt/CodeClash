@@ -19,6 +19,13 @@ export const SCORING = {
     leaverPenalty: -24, // LP deducted from the player who abandoned
   },
 
+  // Daily Algorithmic Bounty — solo practice challenge, no adversary required
+  bounty: {
+    solve: 50, // LP reward for correctly solving today's bounty problem
+    dnf: 0, // LP for abandoning / failing to solve within the timer
+    durationMinutes: 10, // default per-attempt clock
+  },
+
   // Simulated adversary ratings used for practice / NPC opponents
   simulated: {
     ranked: 2395, // elite simulated ranked adversary ("v0_Sniper")

@@ -39,7 +39,7 @@ const matchSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['ranked', 'casual', 'private', 'scrimmage'],
+    enum: ['ranked', 'casual', 'private', 'scrimmage', 'bounty'],
     default: 'ranked'
   },
   status: {

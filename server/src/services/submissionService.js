@@ -7,6 +7,7 @@ import CodingProblem from '../models/CodingProblem.js';
 import { executeCode } from './compilerService.js';
 import { normalizeLanguage } from '../config/languages.js';
 import { completeMatch } from './matchService.js';
+import { finalizeBounty } from './bountyService.js';
 
 // ============== CODE JUDGE ==============
 export async function judgeCode(code, language, testCases) {
@@ -101,7 +102,12 @@ export async function submitCode({ userId, matchId, problemId, code, language, _
   const elapsedSecs = Math.floor((nowMs - matchStartedMs) / 1000);
   const matchDurationSecs = match.duration || 900;
   if (matchStartedMs > 0 && elapsedSecs >= matchDurationSecs) {
-    await completeMatch(match._id);
+    // Solo bounty expiry settles at 0 LP (no ranked deltas)
+    if (match.type === 'bounty') {
+      await finalizeBounty(match._id, userId);
+    } else {
+      await completeMatch(match._id);
+    }
     const err = new Error('Match time has expired');
     err.statusCode = 400;
     err.code = 'TIME_EXPIRED';
@@ -205,7 +211,11 @@ export async function submitCode({ userId, matchId, problemId, code, language, _
 
     let shouldComplete = false;
     let allPlayersSolved = false;
-    if (isRanked) {
+    if (match.type === 'bounty') {
+      // Solo bounty: settles the moment the combatant solves today's problem.
+      allPlayersSolved = (match.players[playerIndex]?.problemsSolved || 0) >= reqCount;
+      shouldComplete = allPlayersSolved;
+    } else if (isRanked) {
       const anyPlayerSolvedAll = match.players.some((p) => (p.problemsSolved || 0) >= reqCount);
       shouldComplete = anyPlayerSolvedAll;
       allPlayersSolved = anyPlayerSolvedAll;
@@ -218,7 +228,12 @@ export async function submitCode({ userId, matchId, problemId, code, language, _
 
     let completedMatchData = null;
     if (shouldComplete) {
-      completedMatchData = await completeMatch(match._id);
+      if (match.type === 'bounty') {
+        const settled = await finalizeBounty(match._id, userId);
+        completedMatchData = settled?.match || null;
+      } else {
+        completedMatchData = await completeMatch(match._id);
+      }
     }
 
     return {

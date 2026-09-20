@@ -101,6 +101,9 @@ const userSchema = new mongoose.Schema({
 
 userSchema.index({ rating: -1, _id: 1 });
 userSchema.index({ wins: -1, _id: 1 });
+userSchema.index({ streak: -1, _id: 1 });
+userSchema.index({ primaryStack: 1, rating: -1, _id: 1 });
+userSchema.index({ isActive: 1, rating: -1, _id: 1 });
 
 // Hash password before saving (async/await style for Mongoose 9)
 userSchema.pre('save', async function () {

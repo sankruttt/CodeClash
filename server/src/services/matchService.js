@@ -5,7 +5,18 @@ import CodingProblem from '../models/CodingProblem.js';
 import User from '../models/User.js';
 import { updatePlayerStatsAfterMatch, addMatchHistory } from './scoringService.js';
 import { getUserById } from './authService.js';
+import { finalizeBounty } from './bountyService.js';
+import { invalidateMatchCaches } from './cacheService.js';
 import { SCORING } from '../config/scoring.js';
+
+async function invalidateMatchCachesFor(match) {
+  const playerIds = (match?.players || [])
+    .filter((p) => p?.userId && mongoose.Types.ObjectId.isValid(p?.userId))
+    .map((p) => p.userId);
+  if (playerIds.length) {
+    await invalidateMatchCaches({ playerIds }).catch(() => null);
+  }
+}
 
 async function buildPlayerEntry(userId, status = 'WAITING') {
   const user = await getUserById(userId);
@@ -251,6 +262,16 @@ export async function getMatchById(matchId) {
     const reqCount = match.problems?.length || match.questionCount || 1;
     const isRanked = match.type === 'ranked';
 
+    // Solo daily bounty settles via its own rules (+50 solved / 0 LP otherwise)
+    // and never runs the 2-player ranked duel settlement.
+    if (match.type === 'bounty') {
+      const userId = match.players?.[0]?.userId;
+      if (isTimeExpired || (userId && (match.players[0]?.problemsSolved || 0) >= reqCount)) {
+        match = await finalizeBounty(match._id, userId);
+      }
+      return match;
+    }
+
     let shouldComplete = isTimeExpired;
     if (!shouldComplete) {
       if (isRanked) {
@@ -298,6 +319,9 @@ export async function completeMatch(matchId) {
 
   // Idempotency: If already completed or abandoned with rewards processed, return current state
   if (match.status === 'COMPLETED' || (match.status === 'ABANDONED' && match.rewardsAwarded)) {
+    // Ratings may have changed on another instance that finalized this match;
+    // invalidate so the next read is fresh.
+    await invalidateMatchCachesFor(match);
     return match;
   }
 
@@ -390,6 +414,9 @@ export async function completeMatch(matchId) {
     await Room.updateOne({ code: match.roomCode }, { $set: { status: 'completed' } }).catch(() => null);
   }
 
+  // Only invalidate AFTER ratings & history are fully persisted.
+  await invalidateMatchCachesFor(match);
+
   return match;
 }
 
@@ -444,6 +471,7 @@ export async function abandonMatch(matchId, leavingUserId, extra = {}) {
   // If already settled (completed OR abandoned-with-rewards), return state.
   // Never overwrite a completed verdict with abandonment rewards.
   if (match.status === 'COMPLETED' || (match.status === 'ABANDONED' && match.rewardsAwarded)) {
+    await invalidateMatchCachesFor(match);
     return match;
   }
 
@@ -519,6 +547,8 @@ export async function abandonMatch(matchId, leavingUserId, extra = {}) {
   ).catch(() => null);
 
   if (!claim || claim.modifiedCount === 0) {
+    // Another caller won the atomic claim and updated ratings/history.
+    await invalidateMatchCachesFor(match);
     const fresh = await Match.findById(match._id).catch(() => null);
     return fresh || match;
   }
@@ -557,6 +587,9 @@ export async function abandonMatch(matchId, leavingUserId, extra = {}) {
   }
 
   await match.save();
+
+  // Only invalidate AFTER leaver penalty & remaining reward are persisted.
+  await invalidateMatchCachesFor(match);
   return match;
 }
 

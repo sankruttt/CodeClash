@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getTierDetails } from '../utils/tierUtils';
-import { leaderboardAPI, problemAPI } from '../services/api';
+import { leaderboardAPI, problemAPI, bountyAPI } from '../services/api';
 import StreakCard from '../components/StreakCard';
 import { formatGameTime } from './HistoryView';
 import { SCORING } from '../config/scoring';
@@ -17,7 +17,7 @@ function median(values) {
   return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-export default function DashboardView({ navigate, queueing, setQueueing, onToggleQueue, currentUser }) {
+export default function DashboardView({ navigate, queueing, setQueueing, onToggleQueue, currentUser, onStartBounty, refreshKey = 0 }) {
   const rating = currentUser?.rating || SCORING.defaultRating;
   const tierInfo = getTierDetails(rating, currentUser?.tier);
   const [queueSeconds, setQueueSeconds] = useState(0);
@@ -142,7 +142,7 @@ export default function DashboardView({ navigate, queueing, setQueueing, onToggl
     return () => {
       isCancelled = true;
     };
-  }, [currentUser?.id]);
+  }, [currentUser?.id, refreshKey]);
 
   // ---- KPI computations from real data ----
   const wins = currentUser?.wins || meUser?.wins || 0;
@@ -225,10 +225,10 @@ export default function DashboardView({ navigate, queueing, setQueueing, onToggl
                   </div>
                 </div>
                 <button
-                  onClick={toggleQueue}
+                  onClick={onStartBounty}
                   className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-mono text-xs font-semibold tracking-wider transition-colors shrink-0 cursor-pointer"
                 >
-                  {queueing ? 'QUEUE ACTIVE...' : 'QUEUE FOR BOUNTY'}
+                  {queueing ? 'RESUME BOUNTY...' : 'START BOUNTY'}
                 </button>
               </div>
             </div>

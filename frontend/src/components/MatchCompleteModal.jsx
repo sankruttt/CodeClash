@@ -305,6 +305,21 @@ export default function MatchCompleteModal({
       >
         {/* Top Decorative Accent Rail */}
         <div className={`h-1.5 w-full ${isDraw ? 'bg-slate-400' : isUserWinner ? 'bg-emerald-500' : 'bg-rose-500'}`}/>
+
+        {/* Dismiss — return to Dashboard */}
+        <button
+          type="button"
+          onClick={() => handleExit('dashboard')}
+          aria-label="Close and return to dashboard"
+          title="Close and return to dashboard"
+          data-purpose="match-complete-dismiss"
+          className="absolute top-3 right-3 z-20 w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 active:bg-slate-200/80 transition-colors cursor-pointer"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24">
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg>
+        </button>
         <div className="p-6 sm:p-7 space-y-5">
           {/* Header: Protocol Badge + Decisive Resolution Box */}
           <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

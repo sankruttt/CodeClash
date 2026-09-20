@@ -5,7 +5,7 @@ import { SCORING } from '../config/scoring';
 
 const SUPPORTED_STACKS = ['All Stacks', 'C', 'C++', 'Java', 'JavaScript', 'Python'];
 
-export default function LeaderboardView({ currentUser, onUserRefreshed, prefillSearch = '' }) {
+export default function LeaderboardView({ currentUser, onUserRefreshed, prefillSearch = '', refreshKey = 0 }) {
   const [stackFilter, setStackFilter] = useState('All Stacks');
   const [searchQuery, setSearchQuery] = useState('');
   const [leaderboard, setLeaderboard] = useState([]);
@@ -92,7 +92,7 @@ export default function LeaderboardView({ currentUser, onUserRefreshed, prefillS
       fetchPage(1, stackFilter, searchQuery);
     }, 250);
     return () => clearTimeout(timer);
-  }, [stackFilter, searchQuery, currentUser?.id]);
+  }, [stackFilter, searchQuery, currentUser?.id, refreshKey]);
 
   const handlePageChange = (newPage) => {
     if (newPage < 1 || newPage > pagination.totalPages || pageChanging || loading) return;

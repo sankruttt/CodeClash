@@ -16,6 +16,8 @@ import {
   matchmakingAPI,
   matchAPI,
   roomAPI,
+  leaderboardAPI,
+  bountyAPI,
   getAuthToken,
   setAuthToken,
   clearAuthToken,
@@ -77,6 +79,7 @@ export default function App() {
   const [pendingNavigationRoute, setPendingNavigationRoute] = useState(null);
   const [forfeitNotice, setForfeitNotice] = useState(null);
   const [leaderboardSearchPrefill, setLeaderboardSearchPrefill] = useState('');
+  const [dataRefreshKey, setDataRefreshKey] = useState(0);
 
   const isMatchInProgress = useCallback((matchObj) => {
     if (!matchObj) return false;
@@ -593,18 +596,65 @@ export default function App() {
     navigate('arena');
   };
 
+  // Begin today's Daily Algorithmic Bounty — a solo, once-daily ranked challenge:
+  // +SCORING.bounty.solve LP on a clean solve, 0 LP on DNF. The backend auto-settles
+  // the bounty when the problem is solved (submission finalize) or the timer expires.
+  const handleStartBounty = useCallback(async () => {
+    try {
+      const res = await bountyAPI.startBounty();
+      const payload = res?.data || res;
+      const attempt = payload?.attempt || null;
+      const matchInfo = payload?.match || null;
+      const problemData = payload?.problem || attempt?.problem || null;
+
+      let bountyMatch = {
+        id: matchInfo?._id || matchInfo?.id || (attempt?.matchId ? String(attempt.matchId) : null),
+        matchId: matchInfo?._id || matchInfo?.id || (attempt?.matchId ? String(attempt.matchId) : null),
+        roomCode: matchInfo?.roomCode || attempt?.day || '',
+        type: 'bounty',
+        isRanked: false,
+        isBounty: true,
+        opponent: 'Quantum Bounty',
+        opponentRating: Number(SCORING.bounty.opponentRating ?? SCORING.simulated.ranked),
+        opponentAvatar: 'Q*',
+        questionCount: 1,
+        difficulty: problemData?.difficulty || 'Medium',
+        problem: problemData?.title || 'Daily Algorithmic Bounty',
+        problemData,
+        problems: problemData ? [problemData] : [],
+        timeLimit: SCORING.bounty.timeLimit || '10:00',
+        duration: (SCORING.bounty.durationMinutes || 10) * 60,
+        startedAt: new Date().toISOString(),
+      };
+
+      sessionStorage.setItem('codeclash_active_match', JSON.stringify(bountyMatch));
+      setActiveMatch(bountyMatch);
+      navigate('arena');
+    } catch (err) {
+      console.error('Bounty start error:', err?.message || err);
+      const msg = err?.response?.data?.message || err?.message || 'Unable to start today\'s bounty.';
+      const newNotice = `Bounty — ${msg}`;
+      sessionStorage.setItem('codeclash_notice', newNotice);
+      window.dispatchEvent(new CustomEvent('codeclash:notice', { detail: newNotice }));
+    }
+  }, [navigate]);
+
   // Clean exit without penalty or forfeit warning (used when match is finished, abandoned, or forfeited)
   const handleCleanExit = useCallback((destination = 'lobby') => {
     sessionStorage.removeItem('codeclash_active_match');
     setActiveMatch(null);
     setConfirmExitModal(false);
     setPendingNavigationRoute(null);
+    setDataRefreshKey((k) => k + 1);
     setRoute(destination);
     window.location.hash = destination;
   }, []);
 
-  // Refresh user data from MongoDB after match completion (LP update)
+  // Refresh user data from MongoDB after match completion (LP update).
+  // Also invalidate cached leaderboard/history reads so the next visit
+  // to the dashboard / leaderboard / history surfaces fresh backend data.
   const handleMatchComplete = useCallback(async () => {
+    setDataRefreshKey((k) => k + 1);
     await refreshUser();
   }, [refreshUser]);
 
@@ -642,6 +692,7 @@ export default function App() {
     setConfirmExitModal(false);
     const destination = pendingNavigationRoute || 'lobby';
     setPendingNavigationRoute(null);
+    setDataRefreshKey((k) => k + 1);
     setRoute(destination);
     window.location.hash = destination;
     setForfeitNotice(`Match Abandoned (${formatLp(SCORING.abandonment.leaverPenalty)})`);
@@ -763,6 +814,8 @@ export default function App() {
             setQueueing={setQueueing}
             onToggleQueue={handleToggleQueue}
             currentUser={currentUser}
+            onStartBounty={handleStartBounty}
+            refreshKey={dataRefreshKey}
           />
         )}
 
@@ -801,6 +854,7 @@ export default function App() {
             currentUser={currentUser}
             onUserRefreshed={refreshUser}
             prefillSearch={leaderboardSearchPrefill}
+            refreshKey={dataRefreshKey}
           />
         )}
 
@@ -808,6 +862,7 @@ export default function App() {
           <HistoryView
             navigate={navigate}
             currentUser={currentUser}
+            refreshKey={dataRefreshKey}
           />
         )}
 

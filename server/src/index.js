@@ -21,6 +21,7 @@ import leaderboardRoutes from './routes/leaderboard.js';
 import matchmakingRoutes from './routes/matchmaking.js';
 import roomRoutes from './routes/rooms.js';
 import playerRoutes from './routes/players.js';
+import bountyRoutes from './routes/bounty.js';
 
 dotenv.config();
 
@@ -155,7 +156,8 @@ app.get('/', (req, res) => {
       leaderboard: '/api/leaderboard',
       matchmaking: '/api/matchmaking',
       rooms: '/api/rooms',
-      players: '/api/players'
+      players: '/api/players',
+      bounty: '/api/bounty'
     }
   });
 });
@@ -188,6 +190,7 @@ app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/matchmaking', matchmakingRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/players', playerRoutes);
+app.use('/api/bounty', bountyRoutes);
 
 // ============================================================
 // 404 HANDLER
