@@ -200,7 +200,7 @@ export default function DashboardView({ navigate, queueing, setQueueing, onToggl
         <section className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
           {/* LEFT: Recent Duel History + Bounty */}
           <div className="lg:col-span-8 space-y-4">
-            <RecentDuelHistory history={matches.slice(0, 8)} loading={loadingData} onViewAll={() => navigate('history')} />
+            <RecentDuelHistory history={matches.slice(0, 5)} loading={loadingData} onViewAll={() => navigate('history')} />
 
             {/* Daily Algorithmic Bounty */}
             <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs">
