@@ -4,6 +4,7 @@ import { getTierDetails } from '../utils/tierUtils';
 import { SCORING } from '../config/scoring';
 
 const SUPPORTED_STACKS = ['All Stacks', 'C', 'C++', 'Java', 'JavaScript', 'Python'];
+const PAGE_SIZE = 15;
 
 export default function LeaderboardView({ currentUser, onUserRefreshed, prefillSearch = '' }) {
   const [stackFilter, setStackFilter] = useState('All Stacks');
@@ -12,7 +13,7 @@ export default function LeaderboardView({ currentUser, onUserRefreshed, prefillS
   const [top3, setTop3] = useState([]);
   const [pagination, setPagination] = useState({
     page: 1,
-    limit: 20,
+    limit: PAGE_SIZE,
     total: 0,
     totalPages: 1,
     hasNextPage: false,
@@ -46,7 +47,7 @@ export default function LeaderboardView({ currentUser, onUserRefreshed, prefillS
       const [res, meRes] = await Promise.all([
         leaderboardAPI.getLeaderboard({
           page: targetPage,
-          limit: 20,
+          limit: PAGE_SIZE,
           sortBy: 'rating',
           stack: stack !== 'All Stacks' ? stack : '',
           search: search?.trim() || ''
@@ -113,8 +114,8 @@ export default function LeaderboardView({ currentUser, onUserRefreshed, prefillS
     const tierLabel = getTierDetails(item.rating || SCORING.defaultRating, item.tier).currentTier;
 
     return {
-      rank: item.rank || pagination.page * 20 - 20 + idx + 1,
-      rankFormatted: (item.rank || pagination.page * 20 - 20 + idx + 1).toString().padStart(2, '0'),
+      rank: item.rank || pagination.page * PAGE_SIZE - PAGE_SIZE + idx + 1,
+      rankFormatted: (item.rank || pagination.page * PAGE_SIZE - PAGE_SIZE + idx + 1).toString().padStart(2, '0'),
       userId: item.userId || item.id,
       name: item.name || item.username || 'Combatant',
       rating: item.rating || SCORING.defaultRating,
