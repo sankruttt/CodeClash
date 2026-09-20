@@ -35,7 +35,7 @@ export function matchTypeLabel(type) {
   return 'Ranked';
 }
 
-export default function HistoryView({ navigate, currentUser, refreshKey = 0 }) {
+export default function HistoryView({ navigate, currentUser }) {
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchFilter, setSearchFilter] = useState('');
   const [matches, setMatches] = useState([]);
@@ -134,7 +134,7 @@ export default function HistoryView({ navigate, currentUser, refreshKey = 0 }) {
     return () => {
       isCancelled = true;
     };
-  }, [currentUser, refreshKey]);
+  }, [currentUser]);
 
   const totalWins = currentUser?.wins ?? 0;
   const totalLosses = currentUser?.losses ?? 0;

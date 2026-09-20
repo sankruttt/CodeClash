@@ -4,7 +4,6 @@ import MatchHistory from '../models/MatchHistory.js';
 import User from '../models/User.js';
 import { recordUserActivity } from './streakService.js';
 import { SCORING } from '../config/scoring.js';
-import { getOrSet, cacheSet, CACHE_TTL } from './cacheService.js';
 
 // ============== RATING CALCULATION (ELO) ==============
 
@@ -170,20 +169,7 @@ export async function addMatchHistory(userId, match, playerResult, opponentResul
 
 // ============== LEADERBOARD (SERVER-SIDE PAGINATION) ==============
 
-export function buildLeaderboardCacheKey({ page = 1, limit = 20, sortBy = 'rating', stack, search } = {}) {
-  const pageNum = Math.max(1, parseInt(page, 10) || 1);
-  const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
-  const stackPart = stack && stack !== 'All Stacks' && stack !== 'all' ? stack : 'all';
-  const searchPart = search && search.trim() ? search.trim().toLowerCase().replace(/\s+/g, '_') : 'all';
-  return `leaderboard:${pageNum}:${limitNum}:${sortBy}:${stackPart}:${searchPart}`;
-}
-
-export async function getGlobalLeaderboard(opts = {}) {
-  const cacheKey = buildLeaderboardCacheKey(opts);
-  return getOrSet(cacheKey, CACHE_TTL.leaderboard, () => computeGlobalLeaderboard(opts));
-}
-
-export async function computeGlobalLeaderboard({ page = 1, limit = 20, sortBy = 'rating', stack, search } = {}) {
+export async function getGlobalLeaderboard({ page = 1, limit = 20, sortBy = 'rating', stack, search } = {}) {
   const pageNum = Math.max(1, parseInt(page, 10) || 1);
   const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
   const skip = (pageNum - 1) * limitNum;
@@ -286,37 +272,16 @@ export async function getUserRank(userId) {
 
 // ============== USER HISTORY ==============
 
-export async function computeUserMatchHistory(userId, safeLimit = 50) {
-  return await MatchHistory.find({ userId })
-    .sort({ createdAt: -1 })
-    .limit(safeLimit)
-    .lean();
-}
-
 export async function getUserMatchHistory(userId, limit = 50) {
   if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
     return [];
   }
 
   const safeLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
-  const cacheKey = `match-history:${userId}`;
-
-  // A single cache entry per user stores history fetched at the
-  // highest limit requested, so any smaller limit can reuse it.
-  const cached = await getOrSet(cacheKey, CACHE_TTL.matchHistory, async () => ({
-    limit: safeLimit,
-    history: await computeUserMatchHistory(userId, safeLimit)
-  }));
-
-  if (cached && Array.isArray(cached.history) && cached.limit >= safeLimit) {
-    return cached.history.slice(0, safeLimit);
-  }
-
-  // Cached entry was fetched with a smaller limit — recompute and
-  // upgrade the cache so the next call can re-use a larger window.
-  const history = await computeUserMatchHistory(userId, safeLimit);
-  await cacheSet(cacheKey, { limit: safeLimit, history }, CACHE_TTL.matchHistory);
-  return history;
+  return await MatchHistory.find({ userId })
+    .sort({ createdAt: -1 })
+    .limit(safeLimit)
+    .lean();
 }
 
 export default {

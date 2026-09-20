@@ -17,7 +17,7 @@ function median(values) {
   return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-export default function DashboardView({ navigate, queueing, setQueueing, onToggleQueue, currentUser, onStartBounty, refreshKey = 0 }) {
+export default function DashboardView({ navigate, queueing, setQueueing, onToggleQueue, currentUser, onStartBounty }) {
   const rating = currentUser?.rating || SCORING.defaultRating;
   const tierInfo = getTierDetails(rating, currentUser?.tier);
   const [queueSeconds, setQueueSeconds] = useState(0);
@@ -142,7 +142,7 @@ export default function DashboardView({ navigate, queueing, setQueueing, onToggl
     return () => {
       isCancelled = true;
     };
-  }, [currentUser?.id, refreshKey]);
+  }, [currentUser?.id]);
 
   // ---- KPI computations from real data ----
   const wins = currentUser?.wins || meUser?.wins || 0;

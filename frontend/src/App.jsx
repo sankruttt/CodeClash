@@ -79,7 +79,6 @@ export default function App() {
   const [pendingNavigationRoute, setPendingNavigationRoute] = useState(null);
   const [forfeitNotice, setForfeitNotice] = useState(null);
   const [leaderboardSearchPrefill, setLeaderboardSearchPrefill] = useState('');
-  const [dataRefreshKey, setDataRefreshKey] = useState(0);
 
   const isMatchInProgress = useCallback((matchObj) => {
     if (!matchObj) return false;
@@ -645,16 +644,12 @@ export default function App() {
     setActiveMatch(null);
     setConfirmExitModal(false);
     setPendingNavigationRoute(null);
-    setDataRefreshKey((k) => k + 1);
     setRoute(destination);
     window.location.hash = destination;
   }, []);
 
-  // Refresh user data from MongoDB after match completion (LP update).
-  // Also invalidate cached leaderboard/history reads so the next visit
-  // to the dashboard / leaderboard / history surfaces fresh backend data.
+  // Refresh user data from MongoDB after match completion (LP update)
   const handleMatchComplete = useCallback(async () => {
-    setDataRefreshKey((k) => k + 1);
     await refreshUser();
   }, [refreshUser]);
 
@@ -692,7 +687,6 @@ export default function App() {
     setConfirmExitModal(false);
     const destination = pendingNavigationRoute || 'lobby';
     setPendingNavigationRoute(null);
-    setDataRefreshKey((k) => k + 1);
     setRoute(destination);
     window.location.hash = destination;
     setForfeitNotice(`Match Abandoned (${formatLp(SCORING.abandonment.leaverPenalty)})`);
@@ -815,7 +809,6 @@ export default function App() {
             onToggleQueue={handleToggleQueue}
             currentUser={currentUser}
             onStartBounty={handleStartBounty}
-            refreshKey={dataRefreshKey}
           />
         )}
 
@@ -854,7 +847,6 @@ export default function App() {
             currentUser={currentUser}
             onUserRefreshed={refreshUser}
             prefillSearch={leaderboardSearchPrefill}
-            refreshKey={dataRefreshKey}
           />
         )}
 
@@ -862,7 +854,6 @@ export default function App() {
           <HistoryView
             navigate={navigate}
             currentUser={currentUser}
-            refreshKey={dataRefreshKey}
           />
         )}
 

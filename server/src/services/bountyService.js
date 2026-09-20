@@ -5,7 +5,6 @@ import CodingProblem from '../models/CodingProblem.js';
 import BountyAttempt from '../models/BountyAttempt.js';
 import { SCORING } from '../config/scoring.js';
 import { addMatchHistory } from './scoringService.js';
-import { invalidMatchHistoryCache, invalidLeaderboardCache } from './cacheService.js';
 import { recordUserActivity } from './streakService.js';
 import { getUserById } from './authService.js';
 
@@ -328,10 +327,6 @@ async function settle(attempt, uid, playerEntry, match, solved, reward) {
     match.players.find((p) => p.userId && String(p.userId) === String(uid)),
     opponentEntry
   ).catch((err) => console.warn('Bounty history write failed:', err.message));
-
-  // Only invalidate AFTER the bounty LP + history are fully persisted.
-  await invalidLeaderboardCache().catch(() => null);
-  await invalidMatchHistoryCache(uid).catch(() => null);
 
   return {
     match: await Match.findById(match._id).populate('problems'),
