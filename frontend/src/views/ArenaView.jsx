@@ -468,7 +468,8 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
             // RANKED: ALL QUESTIONS SOLVED -> MATCH ENDS IMMEDIATELY!
             setHasSolved(true);
             setSolveTime(timeTaken);
-            setShowNotification(`✓ Solution Accepted! All questions completed! Match Ends Immediately!`);
+            setShowNotification(`✓ Solution Accepted! All questions solved. Match complete!`);
+            setTimeout(() => setShowNotification(null), 3000);
 
             try {
               const compRes = await matchAPI.completeMatch(matchId).catch(() => null);
@@ -594,6 +595,7 @@ export default function ArenaView({ navigate, currentUser, activeMatch, onCleanE
         matchResult={matchResult}
         currentUser={currentUser}
         activeMatch={activeMatch}
+        executionResult={executionResult}
         onCleanExit={onCleanExit}
         navigate={navigate}
       />

@@ -50,10 +50,16 @@ const DUEL_FLOW = [
   { step: 4, label: 'Claim LP & Rank', tone: 'emerald' },
 ];
 
+// Module-level flag: survives SPA navigation (component unmount/remount) so a
+// dismissed briefing stays hidden when the user returns to the dashboard, but
+// resets on a full page reload — making the briefing appear once per load.
+let briefingDismissed = false;
+
 export default function CombatBriefing() {
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState(briefingDismissed);
 
   const handleDismiss = () => {
+    briefingDismissed = true;
     setDismissed(true);
   };
 

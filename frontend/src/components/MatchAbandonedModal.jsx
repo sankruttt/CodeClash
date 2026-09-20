@@ -1,23 +1,43 @@
 import React from 'react';
+import { SCORING, formatLp } from '../config/scoring';
 import { getTierDetails } from '../utils/tierUtils';
-import { SCORING } from '../config/scoring';
 
 /**
  * MatchAbandonedModal
  * Shown to the opponent who REMAINED in the arena when the adversary abandons,
- * disconnects, or leaves. Remodeled to match the Match Abandoned design reference
+ * disconnects, or leaves. Rebuilt to match the Match Abandoned design reference
  * while reading all values from authoritative backend match data.
  *
  * Perspective rules enforced here:
- *  - The CURRENT user is always "Combatant_01 (You) / Connected".
+ *  - The CURRENT user is always "YOU / Connected".
  *  - NEVER shows the current user as the abandoning / forfeited party.
- *  - Reward amount is taken straight from the backend match players' ratingChange.
+ *  - Reward amount comes from the canonical scoring config (backend source of
+ *    truth) or backend-persisted rewardDetails.rewardedLp.
  */
+
+function defaultFormatTime(secs) {
+  if (typeof secs !== 'number' || isNaN(secs) || secs < 0) return null;
+  const mins = Math.floor(secs / 60);
+  const remSecs = Math.floor(secs % 60);
+  return `${String(mins).padStart(2, '0')}:${String(remSecs).padStart(2, '0')}`;
+}
+
+function getInitials(name) {
+  if (!name || typeof name !== 'string') return '??';
+  const clean = name.trim().replace(/[^a-zA-Z0-9_\s]/g, '');
+  const parts = clean.split(/[\s_-]+/);
+  if (parts.length >= 2 && parts[0] && parts[1]) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return clean.slice(0, 2).toUpperCase() || 'CC';
+}
+
 export default function MatchAbandonedModal({
   isOpen,
   matchResult,
   currentUser,
   activeMatch,
+  executionResult,
   onCleanExit,
   navigate,
 }) {
@@ -52,18 +72,9 @@ export default function MatchAbandonedModal({
   const meName = mePlayer?.username || currentUser?.name || currentUser?.username || 'You';
   const oppName = oppPlayer?.username || activeMatch?.opponent || activeMatch?.opponentName || 'Adversary';
 
-  const getInitials = (name) => {
-    if (!name || typeof name !== 'string') return '??';
-    const clean = name.trim().replace(/[^a-zA-Z0-9_\s]/g, '');
-    const parts = clean.split(/[\s_-]+/);
-    if (parts.length >= 2 && parts[0] && parts[1]) {
-      return (parts[0][0] + parts[1][0]).toUpperCase();
-    }
-    return clean.slice(0, 2).toUpperCase() || 'CC';
-  };
-
   const meAvatar = mePlayer?.avatar || currentUser?.avatar || getInitials(meName);
   const oppAvatar = oppPlayer?.avatar || activeMatch?.opponentAvatar || getInitials(oppName);
+  const oppInitials = getInitials(oppName);
 
   const meLP =
     typeof mePlayer?.ratingAfter === 'number'
@@ -79,6 +90,7 @@ export default function MatchAbandonedModal({
   })();
 
   const meTier = currentUser?.tier || getTierDetails(typeof meLP === 'number' ? meLP : SCORING.defaultRating).currentTier;
+  const oppTier = getTierDetails(typeof oppLP === 'number' ? oppLP : SCORING.defaultRating).currentTier;
 
   // ----- Who abandoned? (defensive: card is only shown to the remaining player) -----
   const abandonedBy = matchResult?.abandonedBy ?? activeMatch?.abandonedBy ?? null;
@@ -90,32 +102,32 @@ export default function MatchAbandonedModal({
   );
   const isRemaining = !isCurrentUserAbandoned && mePlayer?.status !== 'DISCONNECTED';
 
-  // ----- Reward: abandonment-only card, always the authoritative +16 rule -----
-  // Preferred source: backend-persisted rewardDetails.rewardedLp (new matches).
-  // Older match records may still carry the pre-rule +24 in players[].ratingChange;
-  // this card never surfaces it because the abandonment reward comes from the
-  // canonical scoring config (imported straight from the backend source of truth).
+  // ----- Reward: canonical abandonment compensation for the remaining player -----
   const rewardLP = (() => {
     const stored = matchResult?.rewardDetails?.rewardedLp;
-    if (typeof stored === 'number' && stored !== 0) {
-      return stored;
-    }
+    if (typeof stored === 'number' && stored !== 0) return stored;
     return SCORING.abandonment.remainingReward;
   })();
 
   // ----- Abandonment/disconnect moment (backend completedAt vs startedAt) -----
-  let disconnectLabel = 'Disconnected (DNF)';
+  let forfeitTime = null;
   if (matchResult?.completedAt) {
     const started = new Date(matchResult.startedAt || matchResult.createdAt || 0).getTime();
     const ended = new Date(matchResult.completedAt).getTime();
     const durSeconds = Number(matchResult.duration) ||
       (started > 0 && ended > 0 ? Math.max(0, Math.floor((ended - started) / 1000)) : null);
     if (typeof durSeconds === 'number' && isFinite(durSeconds) && durSeconds > 0) {
-      const mins = Math.floor(durSeconds / 60);
-      const secs = Math.floor(durSeconds % 60);
-      disconnectLabel = `Left at ${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')} (DNF)`;
+      forfeitTime = defaultFormatTime(durSeconds);
     }
   }
+
+  // ----- Adversary penalty (authoritative player delta, else canonical config) -----
+  const oppPenalty = typeof oppPlayer?.ratingChange === 'number'
+    ? oppPlayer.ratingChange
+    : SCORING.abandonment.leaverPenalty;
+
+  // ----- Remaining player's runtime from their last execution (backend driven) -----
+  const meExecMs = executionResult?.executionTime || executionResult?.time || null;
 
   // ----- Reference ID derived from real match data (never invented) -----
   const rawRef = matchResult?.roomCode || matchResult?._id || matchResult?.id || activeMatch?.roomCode || activeMatch?.matchId || null;
@@ -145,185 +157,212 @@ export default function MatchAbandonedModal({
       <section
         role="dialog"
         aria-label="Match Abandoned"
-        className="relative w-full max-w-[560px] bg-white/95 rounded-2xl border border-slate-200/90 modal-shadow overflow-hidden transition-all animate-zoomIn my-auto"
+        className="relative w-full max-w-xl bg-white/95 rounded-2xl sm:rounded-3xl border border-slate-200/90 modal-shadow overflow-hidden transition-all animate-zoomIn my-auto"
       >
-        {/* Top Cybernetic Accent Telemetry Bar */}
-        <div className="h-1.5 w-full bg-gradient-to-r from-amber-400 via-indigo-500 to-emerald-400" />
+        {/* Top Multi-tone Accent Bar */}
+        <div className="h-1.5 w-full bg-emerald-500" />
 
-        {/* Modal Content Body */}
-        <div className="px-6 pt-7 pb-6 sm:px-8 sm:pt-8 sm:pb-7 flex flex-col items-center text-center">
-          {/* Hazard / Alert Emblem */}
-          <div className="relative mb-4">
-            <div className="absolute inset-0 bg-amber-400/20 blur-xl rounded-full" />
-            <div className="relative w-16 h-16 rounded-2xl bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-500 abandoned-amber-glow">
-              <svg
-                className="w-8 h-8"
-                fill="none"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                viewBox="0 0 24 24"
-              >
-                <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-                <line x1="12" x2="12" y1="9" y2="13" />
-                <line x1="12" x2="12.01" y1="17" y2="17" />
-              </svg>
+        <div className="p-6 sm:p-8 space-y-6">
+          {/* Header Area */}
+          <header className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center shrink-0 shadow-sm">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                  <line x1="12" x2="12" y1="9" y2="13" />
+                  <line x1="12" x2="12.01" y1="17" y2="17" />
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <div className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold tracking-wider text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded uppercase mb-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  PROTOCOL_04 // SESSION TERMINATED
+                </div>
+                <h1 id="match-abandoned-title" className="text-2xl font-extrabold text-slate-900 tracking-tight leading-tight">
+                  Match Abandoned
+                </h1>
+              </div>
             </div>
-            {/* Tiny Live Hazard Blinker */}
-            <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-amber-500 border-2 border-white" />
-            </span>
-          </div>
 
-          {/* Overline Monospace Header */}
-          <div className="font-mono text-[11px] font-bold uppercase tracking-widest text-amber-600/90 mb-1 flex items-center gap-1.5">
-            <span>PROTOCOL_04</span>
-            <span className="text-slate-300">•</span>
-            <span>SESSION TERMINATED</span>
-          </div>
+            <div className="flex flex-col items-end font-mono text-right shrink-0">
+              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Status</span>
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 mt-0.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                Clean Closure
+              </span>
+            </div>
+          </header>
 
-          {/* Main Title */}
-          <h1 id="match-abandoned-title" className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-            Match Abandoned
-          </h1>
-
-          {/* Explanation from the remaining player's perspective */}
-          <p className="mt-2 text-sm text-slate-600 max-w-md font-normal leading-relaxed">
+          {/* Description */}
+          <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
             {isRemaining
-              ? 'Your opponent has disconnected or left the arena session. The match has been verified and safely closed.'
+              ? 'Your opponent disconnected or left the arena. Safe session closure completed.'
               : 'This arena session has been terminated and safely closed.'}
           </p>
 
-          {/* Combatant Status Matrix */}
-          <div className="w-full mt-6 grid grid-cols-2 gap-3">
-            {/* Combatant 1: Current user (remaining player) */}
-            <div className="bg-slate-50/90 border border-slate-200/90 rounded-xl p-3 text-left relative overflow-hidden">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="font-mono text-[10px] uppercase font-bold text-slate-400">Combatant_01 (You)</span>
-                <span className="inline-flex items-center gap-1 font-mono text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  Connected
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs font-mono shrink-0">
-                  {meAvatar}
-                </div>
-                <div className="truncate min-w-0">
-                  <div className="text-xs font-bold text-slate-900 leading-tight truncate">{meName}</div>
-                  <div className="text-[11px] font-mono text-slate-500 truncate">
-                    {meTier} • {typeof meLP === 'number' ? `${meLP.toLocaleString()} LP` : 'LP —'}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Combatant 2: Adversary (abandoning player) */}
-            <div className="bg-slate-50/90 border border-amber-200/60 rounded-xl p-3 text-left relative overflow-hidden">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="font-mono text-[10px] uppercase font-bold text-slate-400">Adversary</span>
-                {isCurrentUserAbandoned ? (
-                  <span className="inline-flex items-center gap-1 font-mono text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                    Connected
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 font-mono text-[10px] font-semibold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
-                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
-                    Forfeited
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-slate-200 text-slate-600 flex items-center justify-center font-bold text-xs font-mono shrink-0">
-                  {oppAvatar}
-                </div>
-                <div className="truncate min-w-0">
-                  <div className="text-xs font-bold text-slate-800 leading-tight truncate">{oppName}</div>
-                  <div className="text-[11px] font-mono text-amber-600/90 font-medium truncate">
-                    {typeof oppLP === 'number' ? `${oppLP.toLocaleString()} LP • ` : ''}
-                    {disconnectLabel}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Reward / Compensation Banner — only for the REMAINING player */}
+          {/* Compensation Box — only for the REMAINING player */}
           {isRemaining && (
-            <div className="w-full mt-4 p-4 rounded-xl bg-emerald-50/90 border border-emerald-200/90 abandoned-emerald-glow flex flex-col sm:flex-row items-center justify-between gap-3 text-left">
+            <div className="rounded-xl bg-emerald-50/90 border border-emerald-200/90 abandoned-emerald-glow p-4 flex items-center justify-between gap-3.5">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-8 h-8 rounded-lg bg-emerald-100 border border-emerald-300 flex items-center justify-center text-emerald-700 shrink-0">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                    <path d="M4.5 12.75l6 6 9-13.5" strokeLinecap="round" strokeLinejoin="round" />
+                <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-700 border border-emerald-300 flex items-center justify-center shrink-0">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                    <path d="m9 12 2 2 4-4" />
                   </svg>
                 </div>
                 <div className="min-w-0">
-                  <div className="text-xs sm:text-sm font-semibold text-emerald-950 font-mono tracking-tight">
-                    Abandonment reward processed
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono text-xs font-bold text-emerald-950 uppercase tracking-tight">
+                      Abandonment Compensation
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      FAIR-PLAY
+                    </span>
                   </div>
-                  <p className="text-[11px] text-emerald-700 leading-tight mt-0.5">
-                    Fair-play rating compensation credited to your rank ledger.
+                  <p className="text-[11px] text-emerald-800 mt-0.5">
+                    Rating compensation credited directly to your rank ledger.
                   </p>
                 </div>
               </div>
               {typeof rewardLP === 'number' && (
-                <div className="shrink-0 font-mono font-bold text-sm bg-emerald-500 text-white px-3 py-1.5 rounded-lg shadow-sm border border-emerald-600">
-                  {rewardLP > 0 ? `+${rewardLP}` : rewardLP} LP
+                <div className="shrink-0 bg-emerald-500 text-white px-3.5 py-1.5 rounded-lg font-mono text-center shadow-sm border border-emerald-600">
+                  <div className="text-[9px] uppercase font-semibold opacity-90 leading-none tracking-wider">Delta</div>
+                  <div className="text-base font-extrabold tracking-tight leading-tight mt-0.5">{formatLp(rewardLP)}</div>
                 </div>
               )}
             </div>
           )}
 
-          {/* Action Buttons Section */}
-          <div className="w-full mt-6 space-y-2.5">
-            {/* Primary Action: Return to Lobby */}
-            <button
-              type="button"
-              onClick={() => handleExit('lobby')}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-mono font-bold text-xs uppercase tracking-wider py-3.5 px-6 rounded-xl abandoned-indigo-glow hover:shadow-indigo-500/40 transition-all flex items-center justify-center gap-2 group cursor-pointer"
-            >
-              <svg className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
-                <path d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 016 6v3" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              RETURN TO LOBBY
-            </button>
+          {/* Combatants Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* YOU (remaining player) */}
+            <div className="bg-slate-50/90 border border-slate-200/80 rounded-xl p-3.5 space-y-2.5">
+              <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
+                <span className="font-mono text-[10px] uppercase font-bold text-slate-400 tracking-wider">You</span>
+                <span className="inline-flex items-center gap-1 font-mono text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  Connected
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs font-mono border border-indigo-200 shrink-0">
+                    {meAvatar}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-slate-900 leading-none truncate">{meName}</div>
+                    <div className="text-[11px] font-mono text-slate-500 mt-1 truncate">
+                      {meTier} • {typeof meLP === 'number' ? `${meLP.toLocaleString()} LP` : 'LP —'}
+                    </div>
+                  </div>
+                </div>
+                {meExecMs != null && (
+                  <span className="text-[10px] font-mono text-slate-600 font-semibold bg-white border border-slate-200 px-2 py-0.5 rounded shadow-2xs shrink-0">
+                    {meExecMs}ms
+                  </span>
+                )}
+              </div>
+            </div>
 
-            {/* Secondary Grid Actions */}
-            <div className="grid grid-cols-2 gap-2.5">
-              <button
-                type="button"
-                onClick={() => handleExit('history')}
-                className="w-full bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 text-slate-700 font-mono font-semibold text-[11px] uppercase tracking-wider py-2.5 px-3 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <svg className="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                MATCH LOG
-              </button>
-              <button
-                type="button"
-                onClick={() => handleExit('lobby')}
-                className="w-full bg-slate-50 hover:bg-indigo-50 active:bg-indigo-100 hover:border-indigo-300 border border-slate-200 text-slate-700 hover:text-indigo-700 font-mono font-semibold text-[11px] uppercase tracking-wider py-2.5 px-3 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <svg className="w-3.5 h-3.5 text-indigo-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path d="M13 10V3L4 14h7v7l9-11h-7z" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                FIND NEW MATCH
-              </button>
+            {/* ADVERSARY (abandoning player) */}
+            <div className="bg-rose-50/40 border border-rose-200/80 rounded-xl p-3.5 space-y-2.5">
+              <div className="flex items-center justify-between border-b border-rose-100 pb-2">
+                <span className="font-mono text-[10px] uppercase font-bold text-slate-400 tracking-wider">Adversary</span>
+                {isCurrentUserAbandoned ? (
+                  <span className="inline-flex items-center gap-1 font-mono text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    Connected
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 font-mono text-[10px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                    Forfeited{forfeitTime ? ` (${forfeitTime})` : ''}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-slate-200 text-slate-600 flex items-center justify-center font-bold text-xs font-mono border border-slate-300 shrink-0">
+                    {oppAvatar && oppAvatar !== oppInitials ? oppAvatar : oppInitials}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-slate-900 leading-none truncate">{oppName}</div>
+                    <div className="text-[11px] font-mono text-slate-500 mt-1 truncate">
+                      {oppTier} • {typeof oppLP === 'number' ? `${oppLP.toLocaleString()} LP` : 'LP —'}
+                    </div>
+                  </div>
+                </div>
+                <span
+                  className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border shrink-0 ${
+                    isCurrentUserAbandoned
+                      ? 'text-slate-500 bg-white border-slate-200'
+                      : 'text-rose-700 bg-rose-100/80 border-rose-200'
+                  }`}
+                >
+                  {formatLp(oppPenalty)}
+                </span>
+              </div>
             </div>
           </div>
 
-          {/* Telemetry Audit Footer */}
-          <div className="mt-6 pt-4 border-t border-slate-100 w-full flex items-center justify-between text-[10px] font-mono text-slate-400">
-            <span className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              LEDGER SYNC: CONFIRMED
-            </span>
-            <span className="hidden sm:inline">INTEGRITY AUDIT PASSED</span>
-            {refId && <span className="text-slate-500 font-semibold">REF_ID: {refId}</span>}
+          {/* Actions Row */}
+          <div className="space-y-2.5 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {/* Primary Action */}
+              <button
+                onClick={() => handleExit('lobby')}
+                type="button"
+                className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-mono font-bold text-xs uppercase tracking-wider rounded-xl abandoned-indigo-glow transition-all flex items-center justify-center gap-2 border border-indigo-700 cursor-pointer"
+              >
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
+                </svg>
+                <span>Find New Match</span>
+              </button>
+
+              {/* Secondary Action */}
+              <button
+                onClick={() => handleExit('dashboard')}
+                type="button"
+                className="w-full py-3 px-4 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 font-mono font-semibold text-xs uppercase tracking-wider rounded-xl border border-slate-200 transition-colors flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+              >
+                <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M18 20V6a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v14" />
+                  <path d="M2 20h20" />
+                  <path d="M14 12v.01" />
+                </svg>
+                <span>Return to Lobby</span>
+              </button>
+            </div>
+
+            {/* Tertiary: Match Log */}
+            <button
+              onClick={() => handleExit('history')}
+              type="button"
+              className="w-full py-2.5 px-4 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 text-slate-600 font-mono font-semibold text-[11px] uppercase tracking-wider rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <svg className="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Match Log
+            </button>
+          </div>
+
+          {/* Footer Metadata */}
+          <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-2 text-[10px] font-mono text-slate-400">
+            <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-start">
+              <span className="inline-flex items-center gap-1 text-emerald-700 font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                Ledger Sync: Confirmed
+              </span>
+              {refId && (
+                <>
+                  <span className="text-slate-300">•</span>
+                  <span>REF_ID: {refId}</span>
+                </>
+              )}
+            </div>
+            <span className="text-slate-500 font-medium">FAIR-PLAY PROTECTION ACTIVE</span>
           </div>
         </div>
       </section>
