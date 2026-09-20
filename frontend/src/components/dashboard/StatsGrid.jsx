@@ -3,23 +3,29 @@ import { SCORING } from '../../config/scoring';
 
 function KpiCard({ label, icon, iconColor, badge, badgeColor, bigValue, subLeft, subRight }) {
   return (
-    <div className="p-4 rounded-xl border border-slate-200/80 bg-white flex flex-col justify-between shadow-xs min-w-0">
-      <div className="flex items-center justify-between text-slate-500 text-[11px] font-mono gap-2">
-        <span className="uppercase tracking-wider font-medium truncate">{label}</span>
+    <div className="p-2 sm:p-4 rounded-xl border border-slate-200/80 bg-white flex flex-col justify-between shadow-xs min-w-0">
+      <div className="flex items-center justify-between text-[9px] sm:text-[11px] text-slate-500 font-mono gap-1 min-w-0">
+        <span className="tip inline-block min-w-0" data-tip={label}>
+          <span className="uppercase tracking-wider font-medium truncate block">{label}</span>
+        </span>
         {badge ? (
-          <span className={`text-xs font-mono font-semibold px-1.5 py-0.5 rounded border shrink-0 ${badgeColor}`}>
+          <span className={`text-[10px] sm:text-xs font-mono font-semibold px-1 py-0.5 rounded border shrink-0 ${badgeColor}`}>
             {badge}
           </span>
         ) : (
-          <span className={`material-symbols-outlined text-sm shrink-0 ${iconColor}`}>{icon}</span>
+          <span className={`material-symbols-outlined text-sm shrink-0 hidden sm:inline ${iconColor}`}>{icon}</span>
         )}
       </div>
-      <div className="my-2 flex items-baseline justify-between gap-2 min-w-0">
-        <div className="text-2xl font-bold font-mono tracking-tight truncate">{bigValue}</div>
+      <div className="my-1 sm:my-2 flex items-baseline justify-between gap-2 min-w-0">
+        <div className="tip min-w-0" data-tip={bigValue}>
+          <div className="text-base sm:text-2xl font-bold font-mono tracking-tight truncate">{bigValue}</div>
+        </div>
       </div>
-      <div className="text-[11px] font-mono text-slate-400 flex items-center justify-between border-t border-slate-100 pt-2 gap-2">
-        <span className="truncate">{subLeft}</span>
-        <span className="text-slate-600 font-medium shrink-0">{subRight || ''}</span>
+      <div className="text-[11px] font-mono text-slate-400 items-center justify-between border-t border-slate-100 pt-2 gap-2 hidden sm:flex">
+        <span className="tip inline-block min-w-0" data-tip={subLeft}>
+          <span className="truncate block">{subLeft}</span>
+        </span>
+        <span className="tip text-slate-600 font-medium shrink-0" data-tip={subRight || ''}>{subRight || ''}</span>
       </div>
     </div>
   );
@@ -27,7 +33,7 @@ function KpiCard({ label, icon, iconColor, badge, badgeColor, bigValue, subLeft,
 
 export default function StatsGrid({ winRate, lp, solveTime, rank }) {
   return (
-    <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+    <section className="grid grid-cols-4 gap-2 sm:gap-3">
       {/* League Points */}
       <KpiCard
         label="League Points"

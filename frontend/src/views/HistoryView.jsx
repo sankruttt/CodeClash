@@ -40,6 +40,9 @@ export default function HistoryView({ navigate, currentUser }) {
   const [searchFilter, setSearchFilter] = useState('');
   const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+
+  const PER_PAGE = 10;
 
   useEffect(() => {
     let isCancelled = false;
@@ -168,6 +171,12 @@ export default function HistoryView({ navigate, currentUser }) {
     return true;
   });
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const activePage = Math.min(page, totalPages);
+  const visibleMatches = filtered.slice((activePage - 1) * PER_PAGE, activePage * PER_PAGE);
+  const startIndex = filtered.length === 0 ? 0 : (activePage - 1) * PER_PAGE + 1;
+  const endIndex = Math.min(activePage * PER_PAGE, filtered.length);
+
   return (
     <div className="flex-1 min-w-0 px-4 pt-4 sm:px-6 sm:pt-6 pb-48 subtle-grid">
       <div className="max-w-[1440px] mx-auto space-y-6">
@@ -192,55 +201,71 @@ export default function HistoryView({ navigate, currentUser }) {
           </div>
 
           {/* Season Summary Metrics */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t border-slate-100 font-mono">
-            <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-3.5 shadow-2xs">
-              <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                <span>CURRENT RATING</span>
-                <span className="text-indigo-600 font-semibold text-[10px]">Active</span>
+          <div className="grid grid-cols-4 gap-2 sm:gap-4 mt-6 pt-6 border-t border-slate-100 font-mono">
+            <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-2 sm:p-3.5 shadow-2xs min-w-0">
+              <div className="flex items-center justify-between text-[9px] sm:text-xs text-slate-400 mb-0.5 sm:mb-1 gap-1">
+                <span className="tip inline-block min-w-0" data-tip="CURRENT RATING">
+                  <span className="uppercase tracking-wider font-medium truncate block">CURRENT RATING</span>
+                </span>
+                <span className="hidden sm:inline text-indigo-600 font-semibold text-[10px]">Active</span>
               </div>
-              <div className="text-xl font-bold text-slate-900 tracking-tight">
-                {rating.toLocaleString()} <span className="text-xs font-normal text-indigo-600">LP</span>
+              <div className="tip min-w-0" data-tip={`${rating.toLocaleString()} LP`}>
+                <div className="text-sm sm:text-xl font-bold text-slate-900 tracking-tight truncate">
+                  {rating.toLocaleString()} <span className="text-[10px] sm:text-xs font-normal text-indigo-600">LP</span>
+                </div>
               </div>
-              <div className="text-[11px] text-slate-500 mt-1">Live Competitive Rating</div>
+              <div className="hidden md:block text-[11px] text-slate-500 mt-1">Live Competitive Rating</div>
             </div>
 
-            <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-3.5 shadow-2xs">
-              <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                <span>TOTAL DUELS</span>
-                <span className="text-emerald-600 bg-emerald-100/60 font-semibold px-1.5 py-0.2 rounded text-[10px]">
+            <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-2 sm:p-3.5 shadow-2xs min-w-0">
+              <div className="flex items-center justify-between text-[9px] sm:text-xs text-slate-400 mb-0.5 sm:mb-1 gap-1">
+                <span className="tip inline-block min-w-0" data-tip="TOTAL DUELS">
+                  <span className="uppercase tracking-wider font-medium truncate block">TOTAL DUELS</span>
+                </span>
+                <span className="hidden sm:inline text-emerald-600 bg-emerald-100/60 font-semibold px-1.5 py-0.2 rounded text-[10px]">
                   {winRate}% winrate
                 </span>
               </div>
-              <div className="text-xl font-bold text-slate-900 tracking-tight">
-                {totalDuels} <span className="text-xs font-normal text-slate-500">({totalWins}W - {totalLosses}L)</span>
+              <div className="tip min-w-0" data-tip={`${totalDuels} (${totalWins}W - ${totalLosses}L)`}>
+                <div className="text-sm sm:text-xl font-bold text-slate-900 tracking-tight truncate">
+                  {totalDuels} <span className="sm:hidden text-[10px] font-semibold text-emerald-600">{winRate}%</span><span className="hidden sm:inline text-xs font-normal text-slate-500">({totalWins}W - {totalLosses}L)</span>
+                </div>
               </div>
-              <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1.5">
+              <div className="hidden md:block text-[11px] text-slate-500 mt-1 flex items-center gap-1.5">
                 <span className="font-bold text-emerald-600">{winRate}%</span> Win Rate Overall
               </div>
             </div>
 
-            <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-3.5 shadow-2xs">
-              <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                <span>MEDIAN SOLVE TIME</span>
-                <span className="text-emerald-600 font-semibold text-[10px]">Active</span>
+            <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-2 sm:p-3.5 shadow-2xs min-w-0">
+              <div className="flex items-center justify-between text-[9px] sm:text-xs text-slate-400 mb-0.5 sm:mb-1 gap-1">
+                <span className="tip inline-block min-w-0" data-tip="MEDIAN SOLVE TIME">
+                  <span className="uppercase tracking-wider font-medium truncate block">MEDIAN SOLVE</span>
+                </span>
+                <span className="hidden sm:inline text-emerald-600 font-semibold text-[10px]">Active</span>
               </div>
-              <div className="text-xl font-bold text-slate-900 tracking-tight">{medianLabel}</div>
-              <div className="text-[11px] text-slate-500 mt-1">
+              <div className="tip min-w-0" data-tip={medianLabel}>
+                <div className="text-sm sm:text-xl font-bold text-slate-900 tracking-tight truncate">{medianLabel}</div>
+              </div>
+              <div className="hidden md:block text-[11px] text-slate-500 mt-1">
                 {medianSolveTime != null ? `Median across ${solveTimes.length} solved duels` : 'No solved duels yet'}
               </div>
             </div>
 
-            <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-3.5 shadow-2xs">
-              <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                <span>HOT STREAK</span>
-                <span className={`font-semibold text-[10px] ${streak > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
+            <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-2 sm:p-3.5 shadow-2xs min-w-0">
+              <div className="flex items-center justify-between text-[9px] sm:text-xs text-slate-400 mb-0.5 sm:mb-1 gap-1">
+                <span className="tip inline-block min-w-0" data-tip="HOT STREAK">
+                  <span className="uppercase tracking-wider font-medium truncate block">HOT STREAK</span>
+                </span>
+                <span className={`hidden sm:inline font-semibold text-[10px] ${streak > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
                   {streak > 0 ? 'ACTIVE' : 'IDLE'}
                 </span>
               </div>
-              <div className="text-xl font-bold text-amber-600 tracking-tight">
-                {streak >= 0 ? `${streak} WINS` : `${Math.abs(streak)} LOSSES`}
+              <div className="tip min-w-0" data-tip={streak >= 0 ? `${streak} WINS` : `${Math.abs(streak)} LOSSES`}>
+                <div className="text-sm sm:text-xl font-bold text-amber-600 tracking-tight truncate">
+                  {streak >= 0 ? `${streak} WINS` : `${Math.abs(streak)} LOSSES`}
+                </div>
               </div>
-              <div className="text-[11px] text-slate-500 mt-1">Current competitive streak</div>
+              <div className="hidden md:block text-[11px] text-slate-500 mt-1">Current competitive streak</div>
             </div>
           </div>
         </section>
@@ -251,7 +276,10 @@ export default function HistoryView({ navigate, currentUser }) {
             {['All', 'Ranked', 'Scrimmage'].map((tab) => (
               <button
                 key={tab}
-                onClick={() => setActiveFilter(tab)}
+                onClick={() => {
+                  setActiveFilter(tab);
+                  setPage(1);
+                }}
                 className={`px-3 py-1.5 rounded-lg font-medium transition-colors ${
                   activeFilter === tab
                     ? 'bg-indigo-50 text-indigo-600 font-bold border border-indigo-200'
@@ -267,7 +295,10 @@ export default function HistoryView({ navigate, currentUser }) {
             <input
               type="text"
               value={searchFilter}
-              onChange={(e) => setSearchFilter(e.target.value)}
+              onChange={(e) => {
+                setSearchFilter(e.target.value);
+                setPage(1);
+              }}
               placeholder="Search adversary or problem..."
               className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-3 pr-16 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500 font-mono"
             />
@@ -308,7 +339,7 @@ export default function HistoryView({ navigate, currentUser }) {
               )}
             </div>
           ) : (
-            filtered.map((match) => (
+            visibleMatches.map((match) => (
               <div
                 key={match.id}
                 className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-2xs hover:border-slate-300 transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4 font-mono"
@@ -386,6 +417,56 @@ export default function HistoryView({ navigate, currentUser }) {
             ))
           )}
         </div>
+
+        {/* Pagination Controls */}
+        {!loading && filtered.length > 0 && (
+          <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3 font-mono text-xs">
+            <div className="text-slate-500">
+              Showing <span className="text-slate-900 font-semibold">{startIndex}</span>–
+              <span className="text-slate-900 font-semibold">{endIndex}</span> of{' '}
+              <span className="text-slate-900 font-semibold">{filtered.length}</span> matches
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={activePage <= 1}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer flex items-center gap-1"
+              >
+                <span className="material-symbols-outlined text-[13px]">chevron_left</span>
+                <span>Prev</span>
+              </button>
+
+              <div className="flex items-center gap-1">
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setPage(p)}
+                    className={`w-8 h-8 rounded-lg border font-medium transition-colors cursor-pointer ${
+                      p === activePage
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                        : 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={activePage >= totalPages}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer flex items-center gap-1"
+              >
+                <span>Next</span>
+                <span className="material-symbols-outlined text-[13px]">chevron_right</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

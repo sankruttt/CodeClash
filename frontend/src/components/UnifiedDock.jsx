@@ -22,7 +22,7 @@ export default function UnifiedDock({ currentRoute, navigate, hasActiveMatch, on
   return (
     <nav
       aria-label="Unified Navigation Dock"
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-white/95 backdrop-blur-xl border border-slate-200/80 shadow-2xl shadow-indigo-950/10 rounded-2xl px-3 py-2 flex items-center gap-2 transition-all duration-200"
+      className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-50 bg-white/95 backdrop-blur-xl border border-slate-200/80 shadow-2xl shadow-indigo-950/10 rounded-2xl px-2 sm:px-3 py-2 flex items-center gap-1.5 sm:gap-2 transition-all duration-200 max-w-[calc(100vw-1.5rem)]"
     >
       {dockItems.map((item) => {
         const isActive = currentRoute === item.id;
@@ -33,7 +33,8 @@ export default function UnifiedDock({ currentRoute, navigate, hasActiveMatch, on
             key={item.id}
             onClick={() => handleClick(item)}
             title={isLocked ? 'Arena Locked (Match in Queue or Private Room Required)' : item.label}
-            className={`px-4 py-2 rounded-xl flex items-center gap-2.5 text-xs font-medium transition-all duration-150 relative ${
+            aria-label={item.label}
+            className={`px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-xl flex items-center justify-center gap-2.5 text-xs font-medium transition-all duration-150 relative ${
               isActive
                 ? 'bg-indigo-50/90 text-indigo-600 font-bold shadow-sm shadow-indigo-500/10 border border-indigo-100'
                 : isLocked
@@ -44,7 +45,7 @@ export default function UnifiedDock({ currentRoute, navigate, hasActiveMatch, on
             <span className="material-symbols-outlined text-[17px] leading-none">
               {isLocked ? 'lock' : item.icon}
             </span>
-            <span>{item.label}</span>
+            <span className="hidden sm:inline">{item.label}</span>
 
             {/* Indicator when live match is active */}
             {item.id === 'arena' && hasActiveMatch && (
